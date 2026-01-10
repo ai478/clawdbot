@@ -29,7 +29,7 @@ services:
 
   clawdbot-cli:
     image: ${CLAWDBOT_IMAGE:-clawdbot:local}
-    user: "1000:1000"
+    user: "1001:1001"
     environment:
       # Use the clawdis home directory inside the container
       HOME: /home/node
