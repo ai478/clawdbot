@@ -29,6 +29,8 @@ services:
 
   clawdbot-cli:
     image: ${CLAWDBOT_IMAGE:-clawdbot:local}
+    # ADD THIS LINE:
+    user: "node"
     environment:
       HOME: /home/node
       TERM: xterm-256color
@@ -37,9 +39,8 @@ services:
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
       PATH: /home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/bin:/usr/bin:/bin
-      # ADD THESE TWO LINES:
+      # Keep these to prevent unnecessary update checks
       HOMEBREW_NO_AUTO_UPDATE: 1
-      HOMEBREW_ROOT_PATH: /home/linuxbrew/.linuxbrew
     volumes:
       - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
       - ${CLAWDBOT_WORKSPACE_DIR}:/home/node/clawd
