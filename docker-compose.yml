@@ -24,7 +24,7 @@ services:
         "--bind",
         "${CLAWDBOT_GATEWAY_BIND:-lan}",
         "--port",
-        "${CLAWDBOT_GATEWAY_PORT:-18789}"
+        "${CLAWDBOT_GATEWAY_PORT:-18789}",
       ]
 
   clawdbot-cli:
@@ -36,12 +36,11 @@ services:
       CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
-      # ADD THIS LINE: This tells the container to look in the Brew folder for commands
-      - PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/bin:/usr/bin:/bin
+      # This line must use a colon (:) to match the others
+      PATH: /home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/bin:/usr/bin:/bin
     volumes:
       - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
       - ${CLAWDBOT_WORKSPACE_DIR}:/home/node/clawd
-      # ADD THIS LINE: This maps your host's Brew installation into the container
       - /home/linuxbrew/.linuxbrew:/home/linuxbrew/.linuxbrew
     stdin_open: true
     tty: true
