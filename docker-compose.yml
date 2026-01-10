@@ -29,18 +29,19 @@ services:
 
   clawdbot-cli:
     image: ${CLAWDBOT_IMAGE:-clawdbot:local}
+    # Tell Docker to use ID 1001 (clawdis) instead of the default node user
     user: "1001:1001"
     environment:
-      # Use the clawdis home directory inside the container
       HOME: /home/node
       TERM: xterm-256color
       PATH: /home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/bin:/usr/bin:/bin
       HOMEBREW_NO_AUTO_UPDATE: 1
     volumes:
-      # REPLACE THE VARIABLES WITH THESE ACTUAL PATHS:
       - /home/clawdis/.clawdbot:/home/node/.clawdbot
       - /home/clawdis/clawdbot:/home/node/clawd
       - /home/linuxbrew/.linuxbrew:/home/linuxbrew/.linuxbrew
+      # Create a dedicated writable cache for clawdis
+      - /home/clawdis/.cache/clawdbot-brew:/home/node/.cache
     stdin_open: true
     tty: true
     init: true
