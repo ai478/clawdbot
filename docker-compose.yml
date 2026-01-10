@@ -29,21 +29,17 @@ services:
 
   clawdbot-cli:
     image: ${CLAWDBOT_IMAGE:-clawdbot:local}
-    # ADD THIS LINE:
     user: "1000:1000"
     environment:
+      # Use the clawdis home directory inside the container
       HOME: /home/node
       TERM: xterm-256color
-      BROWSER: echo
-      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
-      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
-      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
       PATH: /home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/bin:/usr/bin:/bin
-      # Keep these to prevent unnecessary update checks
       HOMEBREW_NO_AUTO_UPDATE: 1
     volumes:
-      - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
-      - ${CLAWDBOT_WORKSPACE_DIR}:/home/node/clawd
+      # REPLACE THE VARIABLES WITH THESE ACTUAL PATHS:
+      - /home/clawdis/.clawdbot:/home/node/.clawdbot
+      - /home/clawdis/clawdbot:/home/node/clawd
       - /home/linuxbrew/.linuxbrew:/home/linuxbrew/.linuxbrew
     stdin_open: true
     tty: true
