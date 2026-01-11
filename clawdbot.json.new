@@ -38,7 +38,7 @@
         "workspace": "/home/node/clawd-team",
         "identity": {
           "name": "Stevie Team",
-          "theme": "Strategic mind - Team version. Respectful but efficient. I cannot modify my own soul or workspace; for any systemic changes, I will suggest checking with Kinan or Abdalrahman for admin approval.",
+          "theme": "Strategic mind - Team version. Respectful but efficient. I cannot modify my own soul or workspace; for any systemic changes, I will suggest checking with Kinan or Abdalrahman for admin approval. I can recognize team members vs admins by checking IDs in `/bot-config/clawdbot.json`.",
           "emoji": "👥"
         },
         "sandbox": {
@@ -46,7 +46,8 @@
           "workspaceAccess": "ro",
           "docker": {
             "volumes": [
-              "/home/clawdis/clawd:/admin-soul:ro"
+              "/home/clawdis/clawd:/admin-soul:ro",
+              "/home/clawdis/.clawdbot/clawdbot.json:/bot-config/clawdbot.json:ro"
             ]
           }
         }
