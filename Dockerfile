@@ -21,6 +21,14 @@ RUN apt-get update && \
 
 RUN corepack enable
 
+# Configure pnpm for global installs (required for skills)
+RUN pnpm config set store-dir /root/.local/share/pnpm/store && \
+    pnpm setup && \
+    mkdir -p /root/.local/share/pnpm
+
+ENV PNPM_HOME="/root/.local/share/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
 WORKDIR /app
 
 ARG CLAWDBOT_DOCKER_APT_PACKAGES=""
