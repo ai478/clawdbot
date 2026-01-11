@@ -21,13 +21,15 @@ RUN apt-get update && \
 
 RUN corepack enable
 
-# Configure pnpm for global installs (required for skills)
+# Configure pnpm and Go for global installs (required for skills)
 ENV SHELL=/bin/bash
-RUN pnpm config set store-dir /root/.local/share/pnpm/store && \
-    mkdir -p /root/.local/share/pnpm
+ENV PNPM_HOME="/home/node/.local/share/pnpm"
+ENV GOPATH="/home/node/go"
+ENV PATH="$PNPM_HOME:$GOPATH/bin:$PATH"
 
-ENV PNPM_HOME="/root/.local/share/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
+RUN mkdir -p "$PNPM_HOME" "$GOPATH" && \
+    pnpm config set store-dir /home/node/.local/share/pnpm/store && \
+    chown -R 1001:1001 /home/node
 
 WORKDIR /app
 
