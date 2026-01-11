@@ -144,7 +144,8 @@
       "nodeManager": "pnpm"
     },
     "entries": {
-      "brave-search": {}
+      "brave-search": {},
+      "linear": {}
     }
   }
 }
