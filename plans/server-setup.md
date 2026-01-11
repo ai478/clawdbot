@@ -82,7 +82,7 @@ This command uses a temporary Docker container to change the ownership of the `~
 
 ```bash
 # Replace 1000:1000 if your UID is different (check with 'id -u')
-docker run --rm -v ~/.clawdbot:/config alpine chown -R 1000:1000 /config
+docker run --rm -v ~/.clawdbot:/config alpine chown -R 1001:1001 /config
 ```
 
 **Step 5b: Write Configuration**

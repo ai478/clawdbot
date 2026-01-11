@@ -4,10 +4,16 @@ services:
     environment:
       HOME: /home/node
       TERM: xterm-256color
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       CLAWDBOT_GATEWAY_TOKEN: ${CLAWDBOT_GATEWAY_TOKEN}
       CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY}
+      BRAVE_API_KEY: ${BRAVE_API_KEY}
     volumes:
       - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
       - ${CLAWDBOT_WORKSPACE_DIR}:/home/node/clawd
@@ -29,18 +35,22 @@ services:
 
   clawdbot-cli:
     image: ${CLAWDBOT_IMAGE:-clawdbot:local}
-    # Tell Docker to use ID 1001 (clawdis) instead of the default node user
     user: "1001:1001"
     environment:
       HOME: /home/node
       TERM: xterm-256color
       PATH: /home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/bin:/usr/bin:/bin
       HOMEBREW_NO_AUTO_UPDATE: 1
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY}
+      BRAVE_API_KEY: ${BRAVE_API_KEY}
     volumes:
       - /home/clawdis/.clawdbot:/home/node/.clawdbot
       - /home/clawdis/clawdbot:/home/node/clawd
       - /home/linuxbrew/.linuxbrew:/home/linuxbrew/.linuxbrew
-      # Create a dedicated writable cache for clawdis
+      # This maps the host cache we just fixed to the container's expected path
       - /home/clawdis/.cache/clawdbot-brew:/home/node/.cache
     stdin_open: true
     tty: true
