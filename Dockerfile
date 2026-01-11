@@ -22,8 +22,8 @@ RUN apt-get update && \
 RUN corepack enable
 
 # Configure pnpm for global installs (required for skills)
+ENV SHELL=/bin/bash
 RUN pnpm config set store-dir /root/.local/share/pnpm/store && \
-    pnpm setup && \
     mkdir -p /root/.local/share/pnpm
 
 ENV PNPM_HOME="/root/.local/share/pnpm"
