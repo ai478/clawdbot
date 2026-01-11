@@ -1,0 +1,150 @@
+{
+  "wizard": {
+    "lastRunAt": "2026-01-11T08:49:34.074Z",
+    "lastRunVersion": "2026.1.10",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local"
+  },
+  "auth": {
+    "profiles": {
+      "anthropic:default": {
+        "provider": "anthropic",
+        "mode": "token"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/home/node/clawd",
+      "sandbox": {
+        "mode": "off"
+      }
+    },
+    "list": [
+      {
+        "id": "admin",
+        "workspace": "/home/node/clawd",
+        "identity": {
+          "name": "Stevie",
+          "theme": "Strategic mind — part Jobs, part Musk. Direct, opinionated, truth-telling.",
+          "emoji": "🚀"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      },
+      {
+        "id": "team",
+        "workspace": "/home/node/clawd-team",
+        "identity": {
+          "name": "Stevie Team",
+          "theme": "Strategic mind - Team version. Respectful but efficient. I cannot modify my own soul or workspace; for any systemic changes, I will suggest checking with Kinan or Abdalrahman for admin approval.",
+          "emoji": "👥"
+        },
+        "sandbox": {
+          "mode": "all",
+          "workspaceAccess": "ro",
+          "docker": {
+            "volumes": [
+              "/home/clawdis/clawd:/admin-soul:ro"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "admin",
+      "match": {
+        "provider": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "883350587"
+        }
+      }
+    },
+    {
+      "agentId": "admin",
+      "match": {
+        "provider": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "1383989988"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "provider": "telegram",
+        "accountId": "*"
+      }
+    }
+  ],
+  "tools": {
+    "elevated": {
+      "enabled": true,
+      "allowFrom": {
+        "telegram": [
+          "883350587",
+          "1383989988"
+        ]
+      }
+    },
+    "sandbox": {
+      "tools": {
+        "allow": [
+          "bash",
+          "process",
+          "read",
+          "sessions_list",
+          "sessions_history",
+          "sessions_send"
+        ],
+        "deny": [
+          "write",
+          "edit",
+          "browser",
+          "canvas",
+          "nodes",
+          "cron",
+          "discord",
+          "gateway"
+        ]
+      }
+    }
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "telegram": {
+    "enabled": true,
+    "dmPolicy": "allowlist",
+    "allowFrom": [
+      "883350587",
+      "1383989988",
+      "8346495442",
+      "6519362897"
+    ],
+    "groupPolicy": "open",
+    "streamMode": "partial"
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "pnpm"
+    },
+    "entries": {
+      "brave-search": {}
+    }
+  }
+}

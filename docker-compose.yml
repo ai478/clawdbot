@@ -16,7 +16,8 @@ services:
       BRAVE_API_KEY: ${BRAVE_API_KEY}
     volumes:
       - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
-      - ${CLAWDBOT_WORKSPACE_DIR}:/home/node/clawd
+      - /home/clawdis/clawd:/home/node/clawd
+      - /home/clawdis/clawd-team:/home/node/clawd-team
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${CLAWDBOT_GATEWAY_PORT:-18789}:18789"
@@ -49,7 +50,8 @@ services:
       BRAVE_API_KEY: ${BRAVE_API_KEY}
     volumes:
       - /home/clawdis/.clawdbot:/home/node/.clawdbot
-      - /home/clawdis/clawdbot:/home/node/clawd
+      - /home/clawdis/clawd:/home/node/clawd
+      - /home/clawdis/clawd-team:/home/node/clawd-team
       - /home/linuxbrew/.linuxbrew:/home/linuxbrew/.linuxbrew
       # This maps the host cache we just fixed to the container's expected path
       - /home/clawdis/.cache/clawdbot-brew:/home/node/.cache
