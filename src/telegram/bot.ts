@@ -16,10 +16,16 @@ import {
 import { hasControlCommand } from "../auto-reply/command-detection.js";
 import {
   buildCommandText,
-  listNativeCommandSpecs,
+  listNativeCommandSpecsForConfig,
 } from "../auto-reply/commands-registry.js";
 import { formatAgentEnvelope } from "../auto-reply/envelope.js";
-import { resolveBlockStreamingChunking } from "../auto-reply/reply/block-streaming.js";
+import { resolveTelegramDraftStreamingChunking } from "../auto-reply/reply/block-streaming.js";
+import {
+  buildHistoryContextFromMap,
+  clearHistoryEntries,
+  DEFAULT_GROUP_HISTORY_LIMIT,
+  type HistoryEntry,
+} from "../auto-reply/reply/history.js";
 import {
   buildMentionRegexes,
   matchesMentionPatterns,
@@ -39,6 +45,7 @@ import {
   updateLastRoute,
 } from "../config/sessions.js";
 import { danger, logVerbose, shouldLogVerbose } from "../globals.js";
+import { createDedupeCache } from "../infra/dedupe.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { recordProviderActivity } from "../infra/provider-activity.js";
 import { getChildLogger } from "../logging.js";
@@ -114,32 +121,11 @@ const buildTelegramUpdateKey = (ctx: TelegramUpdateKeyContext) => {
   return undefined;
 };
 
-const shouldSkipTelegramUpdate = (
-  cache: Map<string, { ts: number }>,
-  key?: string,
-) => {
-  if (!key) return false;
-  const now = Date.now();
-  const existing = cache.get(key);
-  if (existing && now - existing.ts < RECENT_TELEGRAM_UPDATE_TTL_MS) {
-    return true;
-  }
-  if (existing) cache.delete(key);
-  cache.set(key, { ts: now });
-  if (cache.size > RECENT_TELEGRAM_UPDATE_MAX) {
-    for (const [cachedKey, entry] of cache) {
-      if (now - entry.ts > RECENT_TELEGRAM_UPDATE_TTL_MS) {
-        cache.delete(cachedKey);
-      }
-    }
-    while (cache.size > RECENT_TELEGRAM_UPDATE_MAX) {
-      const oldestKey = cache.keys().next().value as string | undefined;
-      if (!oldestKey) break;
-      cache.delete(oldestKey);
-    }
-  }
-  return false;
-};
+const createTelegramUpdateDedupe = () =>
+  createDedupeCache({
+    ttlMs: RECENT_TELEGRAM_UPDATE_TTL_MS,
+    maxSize: RECENT_TELEGRAM_UPDATE_MAX,
+  });
 
 /** Telegram Location object */
 interface TelegramLocation {
@@ -227,10 +213,10 @@ export function createTelegramBot(opts: TelegramBotOptions) {
   bot.api.config.use(apiThrottler());
   bot.use(sequentialize(getTelegramSequentialKey));
 
-  const recentUpdates = new Map<string, { ts: number }>();
+  const recentUpdates = createTelegramUpdateDedupe();
   const shouldSkipUpdate = (ctx: TelegramUpdateKeyContext) => {
     const key = buildTelegramUpdateKey(ctx);
-    const skipped = shouldSkipTelegramUpdate(recentUpdates, key);
+    const skipped = recentUpdates.check(key);
     if (skipped && key && shouldLogVerbose()) {
       logVerbose(`telegram dedupe: skipped ${key}`);
     }
@@ -238,6 +224,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
   };
 
   const mediaGroupBuffer = new Map<string, MediaGroupEntry>();
+  let mediaGroupProcessing: Promise<void> = Promise.resolve();
 
   const cfg = opts.config ?? loadConfig();
   const account = resolveTelegramAccount({
@@ -245,6 +232,13 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     accountId: opts.accountId,
   });
   const telegramCfg = account.config;
+  const historyLimit = Math.max(
+    0,
+    telegramCfg.historyLimit ??
+      cfg.messages?.groupChat?.historyLimit ??
+      DEFAULT_GROUP_HISTORY_LIMIT,
+  );
+  const groupHistories = new Map<string, HistoryEntry[]>();
   const textLimit = resolveTextChunkLimit(cfg, "telegram", account.accountId);
   const dmPolicy = telegramCfg.dmPolicy ?? "pairing";
   const allowFrom = opts.allowFrom ?? telegramCfg.allowFrom;
@@ -374,7 +368,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     primaryCtx: TelegramContext,
     allMedia: Array<{ path: string; contentType?: string }>,
     storeAllowFrom: string[],
-    options?: { forceWasMentioned?: boolean },
+    options?: { forceWasMentioned?: boolean; messageIdOverride?: string },
   ) => {
     const msg = primaryCtx.message;
     recordProviderActivity({
@@ -496,7 +490,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
                     `Pairing code: ${code}`,
                     "",
                     "Ask the bot owner to approve with:",
-                    "clawdbot pairing approve --provider telegram <code>",
+                    "clawdbot pairing approve telegram <code>",
                   ].join("\n"),
                 );
               }
@@ -563,7 +557,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
       !wasMentioned &&
       !hasAnyMention &&
       commandAuthorized &&
-      hasControlCommand(msg.text ?? msg.caption ?? "");
+      hasControlCommand(msg.text ?? msg.caption ?? "", cfg);
     const effectiveWasMentioned = wasMentioned || shouldBypassMention;
     const canDetectMention = Boolean(botUsername) || mentionRegexes.length > 0;
     if (isGroup && requireMention && canDetectMention) {
@@ -641,6 +635,9 @@ export function createTelegramBot(opts: TelegramBotOptions) {
           replyTarget.id ? ` id:${replyTarget.id}` : ""
         }]\n${replyTarget.body}\n[/Replying]`
       : "";
+    const groupLabel = isGroup
+      ? buildGroupLabel(msg, chatId, messageThreadId)
+      : undefined;
     const body = formatAgentEnvelope({
       provider: "Telegram",
       from: isGroup
@@ -649,6 +646,34 @@ export function createTelegramBot(opts: TelegramBotOptions) {
       timestamp: msg.date ? msg.date * 1000 : undefined,
       body: `${bodyText}${replySuffix}`,
     });
+    let combinedBody = body;
+    const historyKey = isGroup
+      ? buildTelegramGroupPeerId(chatId, messageThreadId)
+      : undefined;
+    if (isGroup && historyKey && historyLimit > 0) {
+      combinedBody = buildHistoryContextFromMap({
+        historyMap: groupHistories,
+        historyKey,
+        limit: historyLimit,
+        entry: {
+          sender: buildSenderLabel(msg, senderId || chatId),
+          body: rawBody,
+          timestamp: msg.date ? msg.date * 1000 : undefined,
+          messageId:
+            typeof msg.message_id === "number"
+              ? String(msg.message_id)
+              : undefined,
+        },
+        currentMessage: combinedBody,
+        formatEntry: (entry) =>
+          formatAgentEnvelope({
+            provider: "Telegram",
+            from: groupLabel ?? `group:${chatId}`,
+            timestamp: entry.timestamp,
+            body: `${entry.sender}: ${entry.body} [id:${entry.messageId ?? "unknown"} chat:${chatId}]`,
+          }),
+      });
+    }
 
     const skillFilter = firstDefined(topicConfig?.skills, groupConfig?.skills);
     const systemPromptParts = [
@@ -658,7 +683,9 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     const groupSystemPrompt =
       systemPromptParts.length > 0 ? systemPromptParts.join("\n\n") : undefined;
     const ctxPayload = {
-      Body: body,
+      Body: combinedBody,
+      RawBody: rawBody,
+      CommandBody: rawBody,
       From: isGroup
         ? buildTelegramGroupFrom(chatId, messageThreadId)
         : `telegram:${chatId}`,
@@ -673,7 +700,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
       SenderUsername: senderUsername || undefined,
       Provider: "telegram",
       Surface: "telegram",
-      MessageSid: String(msg.message_id),
+      MessageSid: options?.messageIdOverride ?? String(msg.message_id),
       ReplyToId: replyTarget?.id,
       ReplyToBody: replyTarget?.body,
       ReplyToSender: replyTarget?.sender,
@@ -749,7 +776,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
       : undefined;
     const draftChunking =
       draftStream && streamMode === "block"
-        ? resolveBlockStreamingChunking(cfg, "telegram", route.accountId)
+        ? resolveTelegramDraftStreamingChunking(cfg, route.accountId)
         : undefined;
     const draftChunker = draftChunking
       ? new EmbeddedBlockChunker(draftChunking)
@@ -809,6 +836,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
         ? !telegramCfg.blockStreaming
         : undefined);
 
+    let didSendReply = false;
     const { queuedFinal } = await dispatchReplyWithBufferedBlockDispatcher({
       ctx: ctxPayload,
       cfg,
@@ -830,6 +858,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
             textLimit,
             messageThreadId,
           });
+          didSendReply = true;
         },
         onError: (err, info) => {
           runtime.error?.(
@@ -852,7 +881,12 @@ export function createTelegramBot(opts: TelegramBotOptions) {
       },
     });
     draftStream?.stop();
-    if (!queuedFinal) return;
+    if (!queuedFinal) {
+      if (isGroup && historyKey && historyLimit > 0 && didSendReply) {
+        clearHistoryEntries({ historyMap: groupHistories, historyKey });
+      }
+      return;
+    }
     if (
       removeAckAfterReply &&
       ackReactionPromise &&
@@ -868,9 +902,14 @@ export function createTelegramBot(opts: TelegramBotOptions) {
         });
       });
     }
+    if (isGroup && historyKey && historyLimit > 0 && didSendReply) {
+      clearHistoryEntries({ historyMap: groupHistories, historyKey });
+    }
   };
 
-  const nativeCommands = nativeEnabled ? listNativeCommandSpecs() : [];
+  const nativeCommands = nativeEnabled
+    ? listNativeCommandSpecsForConfig(cfg)
+    : [];
   if (nativeCommands.length > 0) {
     bot.api
       .setMyCommands(
@@ -1106,7 +1145,7 @@ export function createTelegramBot(opts: TelegramBotOptions) {
         { message: syntheticMessage, me: ctx.me, getFile },
         [],
         storeAllowFrom,
-        { forceWasMentioned: true },
+        { forceWasMentioned: true, messageIdOverride: callback.id },
       );
     } catch (err) {
       runtime.error?.(danger(`callback handler failed: ${String(err)}`));
@@ -1228,14 +1267,24 @@ export function createTelegramBot(opts: TelegramBotOptions) {
           existing.messages.push({ msg, ctx });
           existing.timer = setTimeout(async () => {
             mediaGroupBuffer.delete(mediaGroupId);
-            await processMediaGroup(existing);
+            mediaGroupProcessing = mediaGroupProcessing
+              .then(async () => {
+                await processMediaGroup(existing);
+              })
+              .catch(() => undefined);
+            await mediaGroupProcessing;
           }, MEDIA_GROUP_TIMEOUT_MS);
         } else {
           const entry: MediaGroupEntry = {
             messages: [{ msg, ctx }],
             timer: setTimeout(async () => {
               mediaGroupBuffer.delete(mediaGroupId);
-              await processMediaGroup(entry);
+              mediaGroupProcessing = mediaGroupProcessing
+                .then(async () => {
+                  await processMediaGroup(entry);
+                })
+                .catch(() => undefined);
+              await mediaGroupProcessing;
             }, MEDIA_GROUP_TIMEOUT_MS),
           };
           mediaGroupBuffer.set(mediaGroupId, entry);

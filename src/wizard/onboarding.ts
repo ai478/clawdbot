@@ -4,6 +4,7 @@ import { ensureAuthProfileStore } from "../agents/auth-profiles.js";
 import { DEFAULT_BOOTSTRAP_FILENAME } from "../agents/workspace.js";
 import {
   applyAuthChoice,
+  resolvePreferredProviderForAuthChoice,
   warnIfModelConfigLooksOff,
 } from "../commands/auth-choice.js";
 import { buildAuthChoiceOptions } from "../commands/auth-choice-options.js";
@@ -14,6 +15,10 @@ import {
 } from "../commands/daemon-runtime.js";
 import { healthCommand } from "../commands/health.js";
 import { formatHealthCheckFailure } from "../commands/health-format.js";
+import {
+  applyPrimaryModel,
+  promptDefaultModel,
+} from "../commands/model-picker.js";
 import {
   applyWizardMetadata,
   DEFAULT_WORKSPACE,
@@ -47,7 +52,7 @@ import {
   resolveGatewayPort,
   writeConfigFile,
 } from "../config/config.js";
-import { GATEWAY_LAUNCH_AGENT_LABEL } from "../daemon/constants.js";
+import { resolveGatewayLaunchAgentLabel } from "../daemon/constants.js";
 import { resolveGatewayProgramArguments } from "../daemon/program-args.js";
 import { resolvePreferredNodePath } from "../daemon/runtime-paths.js";
 import { resolveGatewayService } from "../daemon/service.js";
@@ -169,7 +174,7 @@ export async function runOnboardingWizard(
         ? bindRaw
         : "loopback";
 
-    let authMode: GatewayAuthChoice = "off";
+    let authMode: GatewayAuthChoice = "token";
     if (
       baseConfig.gateway?.auth?.mode === "token" ||
       baseConfig.gateway?.auth?.mode === "password"
@@ -210,7 +215,7 @@ export async function runOnboardingWizard(
     };
     const formatAuth = (value: GatewayAuthChoice) => {
       if (value === "off") return "Off (loopback only)";
-      if (value === "token") return "Token";
+      if (value === "token") return "Token (default)";
       return "Password";
     };
     const formatTailscale = (value: "off" | "serve" | "funnel") => {
@@ -232,7 +237,7 @@ export async function runOnboardingWizard(
       : [
           `Gateway port: ${DEFAULT_GATEWAY_PORT}`,
           "Gateway bind: Loopback (127.0.0.1)",
-          "Gateway auth: Off (loopback only)",
+          "Gateway auth: Token (default)",
           "Tailscale exposure: Off",
           "Direct to chat providers.",
         ];
@@ -243,7 +248,8 @@ export async function runOnboardingWizard(
   const localUrl = `ws://127.0.0.1:${localPort}`;
   const localProbe = await probeGatewayReachable({
     url: localUrl,
-    token: process.env.CLAWDBOT_GATEWAY_TOKEN,
+    token:
+      baseConfig.gateway?.auth?.token ?? process.env.CLAWDBOT_GATEWAY_TOKEN,
     password:
       baseConfig.gateway?.auth?.password ??
       process.env.CLAWDBOT_GATEWAY_PASSWORD,
@@ -323,6 +329,7 @@ export async function runOnboardingWizard(
   const authStore = ensureAuthProfileStore(undefined, {
     allowKeychainPrompt: false,
   });
+  const authChoiceFromPrompt = opts.authChoice === undefined;
   const authChoice =
     opts.authChoice ??
     ((await prompter.select({
@@ -342,6 +349,19 @@ export async function runOnboardingWizard(
     setDefaultModel: true,
   });
   nextConfig = authResult.config;
+
+  if (authChoiceFromPrompt) {
+    const modelSelection = await promptDefaultModel({
+      config: nextConfig,
+      prompter,
+      allowKeep: true,
+      ignoreAllowlist: true,
+      preferredProvider: resolvePreferredProviderForAuthChoice(authChoice),
+    });
+    if (modelSelection.model) {
+      nextConfig = applyPrimaryModel(nextConfig, modelSelection.model);
+    }
+  }
 
   await warnIfModelConfigLooksOff(nextConfig, prompter);
 
@@ -383,15 +403,16 @@ export async function runOnboardingWizard(
             {
               value: "off",
               label: "Off (loopback only)",
-              hint: "Recommended for single-machine setups",
+              hint: "Not recommended unless you fully trust local processes",
             },
             {
               value: "token",
               label: "Token",
-              hint: "Use for multi-machine access or non-loopback binds",
+              hint: "Recommended default (local + remote)",
             },
             { value: "password", label: "Password" },
           ],
+          initialValue: "token",
         })) as GatewayAuthChoice)
   ) as GatewayAuthChoice;
 
@@ -458,8 +479,8 @@ export async function runOnboardingWizard(
 
   let gatewayToken: string | undefined;
   if (authMode === "token") {
-    if (flow === "quickstart" && quickstartGateway.token) {
-      gatewayToken = quickstartGateway.token;
+    if (flow === "quickstart") {
+      gatewayToken = quickstartGateway.token ?? randomToken();
     } else {
       const tokenInput = await prompter.text({
         message: "Gateway token (blank to generate)",
@@ -606,7 +627,9 @@ export async function runOnboardingWizard(
       );
     }
     const service = resolveGatewayService();
-    const loaded = await service.isLoaded({ env: process.env });
+    const loaded = await service.isLoaded({
+      profile: process.env.CLAWDBOT_PROFILE,
+    });
     if (loaded) {
       const action = (await prompter.select({
         message: "Gateway service already installed",
@@ -617,7 +640,10 @@ export async function runOnboardingWizard(
         ],
       })) as "restart" | "reinstall" | "skip";
       if (action === "restart") {
-        await service.restart({ stdout: process.stdout });
+        await service.restart({
+          profile: process.env.CLAWDBOT_PROFILE,
+          stdout: process.stdout,
+        });
       } else if (action === "reinstall") {
         await service.uninstall({ env: process.env, stdout: process.stdout });
       }
@@ -625,7 +651,9 @@ export async function runOnboardingWizard(
 
     if (
       !loaded ||
-      (loaded && (await service.isLoaded({ env: process.env })) === false)
+      (loaded &&
+        (await service.isLoaded({ profile: process.env.CLAWDBOT_PROFILE })) ===
+          false)
     ) {
       const devMode =
         process.argv[1]?.includes(`${path.sep}src${path.sep}`) &&
@@ -647,7 +675,7 @@ export async function runOnboardingWizard(
         token: gatewayToken,
         launchdLabel:
           process.platform === "darwin"
-            ? GATEWAY_LAUNCH_AGENT_LABEL
+            ? resolveGatewayLaunchAgentLabel(process.env.CLAWDBOT_PROFILE)
             : undefined,
       });
       await service.install({
@@ -794,6 +822,11 @@ export async function runOnboardingWizard(
       "Docs: https://docs.clawd.bot/concepts/agent-workspace",
     ].join("\n"),
     "Workspace backup",
+  );
+
+  await prompter.note(
+    "Running agents on your computer is risky — harden your setup: https://docs.clawd.bot/security",
+    "Security",
   );
 
   await prompter.outro("Onboarding complete.");

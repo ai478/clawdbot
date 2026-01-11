@@ -15,9 +15,9 @@ import {
   writeConfigFile,
 } from "../config/config.js";
 import {
-  GATEWAY_LAUNCH_AGENT_LABEL,
-  GATEWAY_SYSTEMD_SERVICE_NAME,
-  GATEWAY_WINDOWS_TASK_NAME,
+  resolveGatewayLaunchAgentLabel,
+  resolveGatewaySystemdServiceName,
+  resolveGatewayWindowsTaskName,
 } from "../daemon/constants.js";
 import { resolveGatewayService } from "../daemon/service.js";
 import { resolveGatewayAuth } from "../gateway/auth.js";
@@ -38,6 +38,7 @@ import {
   setConsoleSubsystemFilter,
 } from "../logging.js";
 import { defaultRuntime } from "../runtime.js";
+import { formatDocsLink } from "../terminal/links.js";
 import { colorize, isRich, theme } from "../terminal/theme.js";
 import { resolveUserPath } from "../utils.js";
 import { forceFreePortAndWait } from "./ports.js";
@@ -361,22 +362,25 @@ function extractGatewayMiskeys(parsed: unknown): {
   return { hasGatewayToken, hasRemoteToken };
 }
 
-function renderGatewayServiceStopHints(): string[] {
+function renderGatewayServiceStopHints(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const profile = env.CLAWDBOT_PROFILE;
   switch (process.platform) {
     case "darwin":
       return [
         "Tip: clawdbot daemon stop",
-        `Or: launchctl bootout gui/$UID/${GATEWAY_LAUNCH_AGENT_LABEL}`,
+        `Or: launchctl bootout gui/$UID/${resolveGatewayLaunchAgentLabel(profile)}`,
       ];
     case "linux":
       return [
         "Tip: clawdbot daemon stop",
-        `Or: systemctl --user stop ${GATEWAY_SYSTEMD_SERVICE_NAME}.service`,
+        `Or: systemctl --user stop ${resolveGatewaySystemdServiceName(profile)}.service`,
       ];
     case "win32":
       return [
         "Tip: clawdbot daemon stop",
-        `Or: schtasks /End /TN "${GATEWAY_WINDOWS_TASK_NAME}"`,
+        `Or: schtasks /End /TN "${resolveGatewayWindowsTaskName(profile)}"`,
       ];
     default:
       return ["Tip: clawdbot daemon stop"];
@@ -387,7 +391,7 @@ async function maybeExplainGatewayServiceStop() {
   const service = resolveGatewayService();
   let loaded: boolean | null = null;
   try {
-    loaded = await service.isLoaded({ env: process.env });
+    loaded = await service.isLoaded({ profile: process.env.CLAWDBOT_PROFILE });
   } catch {
     loaded = null;
   }
@@ -865,7 +869,17 @@ function addGatewayRunCommand(
 
 export function registerGatewayCli(program: Command) {
   const gateway = addGatewayRunCommand(
-    program.command("gateway").description("Run the WebSocket Gateway"),
+    program
+      .command("gateway")
+      .description("Run the WebSocket Gateway")
+      .addHelpText(
+        "after",
+        () =>
+          `\n${theme.muted("Docs:")} ${formatDocsLink(
+            "/gateway",
+            "docs.clawd.bot/gateway",
+          )}\n`,
+      ),
   );
 
   // Back-compat: legacy launchd plists used gateway-daemon; keep hidden alias.

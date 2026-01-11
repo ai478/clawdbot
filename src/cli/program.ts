@@ -27,12 +27,13 @@ import {
 import { danger, setVerbose } from "../globals.js";
 import { autoMigrateLegacyState } from "../infra/state-migrations.js";
 import { defaultRuntime } from "../runtime.js";
+import { formatDocsLink } from "../terminal/links.js";
 import { isRich, theme } from "../terminal/theme.js";
 import { VERSION } from "../version.js";
 import {
   emitCliBanner,
-  formatCliBannerArt,
   formatCliBannerLine,
+  hasEmittedCliBanner,
 } from "./banner.js";
 import { registerBrowserCli } from "./browser-cli.js";
 import { hasExplicitOptions } from "./command-options.js";
@@ -53,6 +54,7 @@ import { registerProvidersCli } from "./providers-cli.js";
 import { registerSandboxCli } from "./sandbox-cli.js";
 import { registerSkillsCli } from "./skills-cli.js";
 import { registerTuiCli } from "./tui-cli.js";
+import { registerUpdateCli } from "./update-cli.js";
 
 export { forceFreePort };
 
@@ -106,10 +108,10 @@ export function buildProgram() {
   }
 
   program.addHelpText("beforeAll", () => {
+    if (hasEmittedCliBanner()) return "";
     const rich = isRich();
-    const art = formatCliBannerArt({ richTty: rich });
     const line = formatCliBannerLine(PROGRAM_VERSION, { richTty: rich });
-    return `\n${art}\n${line}\n`;
+    return `\n${line}\n`;
   });
 
   program.hook("preAction", async (_thisCommand, actionCommand) => {
@@ -185,10 +187,12 @@ export function buildProgram() {
     .map(([cmd, desc]) => `  ${theme.command(cmd)}\n    ${theme.muted(desc)}`)
     .join("\n");
 
-  program.addHelpText(
-    "afterAll",
-    `\n${theme.heading("Examples:")}\n${fmtExamples}\n`,
-  );
+  program.addHelpText("afterAll", () => {
+    const docs = formatDocsLink("/cli", "docs.clawd.bot/cli");
+    return `\n${theme.heading("Examples:")}\n${fmtExamples}\n\n${theme.muted(
+      "Docs:",
+    )} ${docs}\n`;
+  });
 
   program
     .command("setup")
@@ -240,12 +244,16 @@ export function buildProgram() {
       "Interactive wizard to set up the gateway, workspace, and skills",
     )
     .option("--workspace <dir>", "Agent workspace directory (default: ~/clawd)")
+    .option(
+      "--reset",
+      "Reset config + credentials + sessions + workspace before running wizard",
+    )
     .option("--non-interactive", "Run without prompts", false)
     .option("--flow <flow>", "Wizard flow: quickstart|advanced")
     .option("--mode <mode>", "Wizard mode: local|remote")
     .option(
       "--auth-choice <choice>",
-      "Auth: setup-token|claude-cli|token|openai-codex|openai-api-key|codex-cli|antigravity|gemini-api-key|apiKey|minimax-cloud|minimax-api|minimax|opencode-zen|skip",
+      "Auth: setup-token|claude-cli|token|openai-codex|openai-api-key|openrouter-api-key|codex-cli|antigravity|gemini-api-key|zai-api-key|apiKey|minimax-cloud|minimax-api|minimax|opencode-zen|skip",
     )
     .option(
       "--token-provider <id>",
@@ -265,7 +273,9 @@ export function buildProgram() {
     )
     .option("--anthropic-api-key <key>", "Anthropic API key")
     .option("--openai-api-key <key>", "OpenAI API key")
+    .option("--openrouter-api-key <key>", "OpenRouter API key")
     .option("--gemini-api-key <key>", "Gemini API key")
+    .option("--zai-api-key <key>", "Z.AI API key")
     .option("--minimax-api-key <key>", "MiniMax API key")
     .option("--opencode-zen-api-key <key>", "OpenCode Zen API key")
     .option("--gateway-port <port>", "Gateway port")
@@ -310,9 +320,11 @@ export function buildProgram() {
               | "token"
               | "openai-codex"
               | "openai-api-key"
+              | "openrouter-api-key"
               | "codex-cli"
               | "antigravity"
               | "gemini-api-key"
+              | "zai-api-key"
               | "apiKey"
               | "minimax-cloud"
               | "minimax-api"
@@ -326,7 +338,9 @@ export function buildProgram() {
             tokenExpiresIn: opts.tokenExpiresIn as string | undefined,
             anthropicApiKey: opts.anthropicApiKey as string | undefined,
             openaiApiKey: opts.openaiApiKey as string | undefined,
+            openrouterApiKey: opts.openrouterApiKey as string | undefined,
             geminiApiKey: opts.geminiApiKey as string | undefined,
+            zaiApiKey: opts.zaiApiKey as string | undefined,
             minimaxApiKey: opts.minimaxApiKey as string | undefined,
             opencodeZenApiKey: opts.opencodeZenApiKey as string | undefined,
             gatewayPort:
@@ -431,6 +445,11 @@ export function buildProgram() {
       "Run without prompts (safe migrations only)",
       false,
     )
+    .option(
+      "--generate-gateway-token",
+      "Generate and configure a gateway token",
+      false,
+    )
     .option("--deep", "Scan system services for extra gateway installs", false)
     .action(async (opts) => {
       try {
@@ -440,6 +459,7 @@ export function buildProgram() {
           repair: Boolean(opts.repair),
           force: Boolean(opts.force),
           nonInteractive: Boolean(opts.nonInteractive),
+          generateGatewayToken: Boolean(opts.generateGatewayToken),
           deep: Boolean(opts.deep),
         });
       } catch (err) {
@@ -496,12 +516,15 @@ export function buildProgram() {
     .description("Send messages and provider actions")
     .addHelpText(
       "after",
-      `
+      () =>
+        `
 Examples:
   clawdbot message send --to +15555550123 --message "Hi"
   clawdbot message send --to +15555550123 --message "Hi" --media photo.jpg
   clawdbot message poll --provider discord --to channel:123 --poll-question "Snack?" --poll-option Pizza --poll-option Sushi
-  clawdbot message react --provider discord --to 123 --message-id 456 --emoji "✅"`,
+  clawdbot message react --provider discord --to 123 --message-id 456 --emoji "✅"
+
+${theme.muted("Docs:")} ${formatDocsLink("/message", "docs.clawd.bot/message")}`,
     )
     .action(() => {
       message.help({ error: true });
@@ -998,13 +1021,18 @@ Examples:
     )
     .addHelpText(
       "after",
-      `
+      () =>
+        `
 Examples:
   clawdbot agent --to +15555550123 --message "status update"
   clawdbot agent --session-id 1234 --message "Summarize inbox" --thinking medium
   clawdbot agent --to +15555550123 --message "Trace logs" --verbose on --json
   clawdbot agent --to +15555550123 --message "Summon reply" --deliver
-`,
+
+${theme.muted("Docs:")} ${formatDocsLink(
+          "/agent-send",
+          "docs.clawd.bot/agent-send",
+        )}`,
     )
     .action(async (opts) => {
       const verboseLevel =
@@ -1129,11 +1157,13 @@ Examples:
   registerPairingCli(program);
   registerProvidersCli(program);
   registerSkillsCli(program);
+  registerUpdateCli(program);
 
   program
     .command("status")
-    .description("Show web session health and recent session recipients")
+    .description("Show local status (gateway, agents, sessions, auth)")
     .option("--json", "Output JSON instead of text", false)
+    .option("--all", "Full diagnosis (read-only, pasteable)", false)
     .option("--usage", "Show provider usage/quota snapshots", false)
     .option(
       "--deep",
@@ -1148,6 +1178,7 @@ Examples:
       `
 Examples:
   clawdbot status                   # show linked account + session store summary
+  clawdbot status --all             # full diagnosis (read-only)
   clawdbot status --json            # machine-readable output
   clawdbot status --usage           # show provider usage/quota snapshots
   clawdbot status --deep            # run provider probes (WA + Telegram + Discord + Slack + Signal)
@@ -1171,6 +1202,7 @@ Examples:
         await statusCommand(
           {
             json: Boolean(opts.json),
+            all: Boolean(opts.all),
             deep: Boolean(opts.deep),
             usage: Boolean(opts.usage),
             timeoutMs: timeout,

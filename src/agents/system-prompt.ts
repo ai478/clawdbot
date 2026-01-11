@@ -1,10 +1,11 @@
-import type { ThinkLevel } from "../auto-reply/thinking.js";
+import type { ReasoningLevel, ThinkLevel } from "../auto-reply/thinking.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import type { EmbeddedContextFile } from "./pi-embedded-helpers.js";
 
 export function buildAgentSystemPrompt(params: {
   workspaceDir: string;
   defaultThinkLevel?: ThinkLevel;
+  reasoningLevel?: ReasoningLevel;
   extraSystemPrompt?: string;
   ownerNumbers?: string[];
   reasoningTagHint?: boolean;
@@ -31,6 +32,14 @@ export function buildAgentSystemPrompt(params: {
     agentWorkspaceMount?: string;
     browserControlUrl?: string;
     browserNoVncUrl?: string;
+    hostBrowserAllowed?: boolean;
+    allowedControlUrls?: string[];
+    allowedControlHosts?: string[];
+    allowedControlPorts?: number[];
+    elevated?: {
+      allowed: boolean;
+      defaultLevel: "on" | "off";
+    };
   };
 }) {
   const toolSummaries: Record<string, string> = {
@@ -56,7 +65,7 @@ export function buildAgentSystemPrompt(params: {
     sessions_send: "Send a message to another session/sub-agent",
     sessions_spawn: "Spawn a sub-agent session",
     session_status:
-      "Show a /status-equivalent status card (includes usage + cost when available); optional per-session model override",
+      "Show a /status-equivalent status card (usage/cost + Reasoning/Verbose/Elevated); optional per-session model override",
     image: "Analyze an image with the configured image model",
   };
 
@@ -135,6 +144,7 @@ export function buildAgentSystemPrompt(params: {
         "<final>Hey there! What would you like to do next?</final>",
       ].join(" ")
     : undefined;
+  const reasoningLevel = params.reasoningLevel ?? "off";
   const userTimezone = params.userTimezone?.trim();
   const userTime = params.userTime?.trim();
   const skillsPrompt = params.skillsPrompt?.trim();
@@ -219,8 +229,9 @@ export function buildAgentSystemPrompt(params: {
     params.sandboxInfo?.enabled ? "## Sandbox" : "",
     params.sandboxInfo?.enabled
       ? [
-          "Tool execution is isolated in a Docker sandbox.",
+          "You are running in a sandboxed runtime (tools execute in Docker).",
           "Some tools may be unavailable due to sandbox policy.",
+          "Sub-agents stay sandboxed (no elevated/host access). Need outside-sandbox read/write? Don't spawn; ask first.",
           params.sandboxInfo.workspaceDir
             ? `Sandbox workspace: ${params.sandboxInfo.workspaceDir}`
             : "",
@@ -236,6 +247,40 @@ export function buildAgentSystemPrompt(params: {
             : "",
           params.sandboxInfo.browserNoVncUrl
             ? `Sandbox browser observer (noVNC): ${params.sandboxInfo.browserNoVncUrl}`
+            : "",
+          params.sandboxInfo.hostBrowserAllowed === true
+            ? "Host browser control: allowed."
+            : params.sandboxInfo.hostBrowserAllowed === false
+              ? "Host browser control: blocked."
+              : "",
+          params.sandboxInfo.allowedControlUrls?.length
+            ? `Browser control URL allowlist: ${params.sandboxInfo.allowedControlUrls.join(
+                ", ",
+              )}`
+            : "",
+          params.sandboxInfo.allowedControlHosts?.length
+            ? `Browser control host allowlist: ${params.sandboxInfo.allowedControlHosts.join(
+                ", ",
+              )}`
+            : "",
+          params.sandboxInfo.allowedControlPorts?.length
+            ? `Browser control port allowlist: ${params.sandboxInfo.allowedControlPorts.join(
+                ", ",
+              )}`
+            : "",
+          params.sandboxInfo.elevated?.allowed
+            ? "Elevated bash is available for this session."
+            : "",
+          params.sandboxInfo.elevated?.allowed
+            ? "User can toggle with /elevated on|off."
+            : "",
+          params.sandboxInfo.elevated?.allowed
+            ? "You may also send /elevated on|off when needed."
+            : "",
+          params.sandboxInfo.elevated?.allowed
+            ? `Current elevated level: ${
+                params.sandboxInfo.elevated.defaultLevel
+              } (on runs bash on host; off runs in sandbox).`
             : "",
         ]
           .filter(Boolean)
@@ -343,6 +388,7 @@ export function buildAgentSystemPrompt(params: {
     ]
       .filter(Boolean)
       .join(" | ")}`,
+    `Reasoning: ${reasoningLevel} (hidden unless on/stream). Toggle /reasoning; /status shows Reasoning when enabled.`,
   );
 
   return lines.filter(Boolean).join("\n");

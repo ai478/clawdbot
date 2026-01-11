@@ -90,10 +90,20 @@ export async function initSessionState(params: {
   commandAuthorized: boolean;
 }): Promise<SessionInitResult> {
   const { ctx, cfg, commandAuthorized } = params;
+  // Native slash commands (Telegram/Discord/Slack) are delivered on a separate
+  // "slash session" key, but should mutate the target chat session.
+  const targetSessionKey =
+    ctx.CommandSource === "native"
+      ? ctx.CommandTargetSessionKey?.trim()
+      : undefined;
+  const sessionCtxForState =
+    targetSessionKey && targetSessionKey !== ctx.SessionKey
+      ? { ...ctx, SessionKey: targetSessionKey }
+      : ctx;
   const sessionCfg = cfg.session;
   const mainKey = normalizeMainKey(sessionCfg?.mainKey);
   const agentId = resolveSessionAgentId({
-    sessionKey: ctx.SessionKey,
+    sessionKey: sessionCtxForState.SessionKey,
     config: cfg,
   });
   const resetTriggers = sessionCfg?.resetTriggers?.length
@@ -119,17 +129,23 @@ export async function initSessionState(params: {
 
   let persistedThinking: string | undefined;
   let persistedVerbose: string | undefined;
+  let persistedReasoning: string | undefined;
   let persistedModelOverride: string | undefined;
   let persistedProviderOverride: string | undefined;
 
-  const groupResolution = resolveGroupSessionKey(ctx) ?? undefined;
+  const groupResolution =
+    resolveGroupSessionKey(sessionCtxForState) ?? undefined;
   const isGroup =
     ctx.ChatType?.trim().toLowerCase() === "group" || Boolean(groupResolution);
-  const triggerBodyNormalized = stripStructuralPrefixes(ctx.Body ?? "")
+  // Prefer CommandBody/RawBody (clean message) for command detection; fall back
+  // to Body which may contain structural context (history, sender labels).
+  const commandSource = ctx.CommandBody ?? ctx.RawBody ?? ctx.Body ?? "";
+  const triggerBodyNormalized = stripStructuralPrefixes(commandSource)
     .trim()
     .toLowerCase();
 
-  const rawBody = ctx.Body ?? "";
+  // Use CommandBody/RawBody for reset trigger matching (clean message without structural context).
+  const rawBody = commandSource;
   const trimmedBody = rawBody.trim();
   const resetAuthorized = resolveCommandAuthorization({
     ctx,
@@ -161,7 +177,7 @@ export async function initSessionState(params: {
     }
   }
 
-  sessionKey = resolveSessionKey(sessionScope, ctx, mainKey);
+  sessionKey = resolveSessionKey(sessionScope, sessionCtxForState, mainKey);
   if (groupResolution?.legacyKey && groupResolution.legacyKey !== sessionKey) {
     const legacyEntry = sessionStore[groupResolution.legacyKey];
     if (legacyEntry && !sessionStore[sessionKey]) {
@@ -179,6 +195,7 @@ export async function initSessionState(params: {
     abortedLastRun = entry.abortedLastRun ?? false;
     persistedThinking = entry.thinkingLevel;
     persistedVerbose = entry.verboseLevel;
+    persistedReasoning = entry.reasoningLevel;
     persistedModelOverride = entry.modelOverride;
     persistedProviderOverride = entry.providerOverride;
   } else {
@@ -198,6 +215,7 @@ export async function initSessionState(params: {
     // Persist previously stored thinking/verbose levels when present.
     thinkingLevel: persistedThinking ?? baseEntry?.thinkingLevel,
     verboseLevel: persistedVerbose ?? baseEntry?.verboseLevel,
+    reasoningLevel: persistedReasoning ?? baseEntry?.reasoningLevel,
     responseUsage: baseEntry?.responseUsage,
     modelOverride: persistedModelOverride ?? baseEntry?.modelOverride,
     providerOverride: persistedProviderOverride ?? baseEntry?.providerOverride,
@@ -273,7 +291,9 @@ export async function initSessionState(params: {
 
   const sessionCtx: TemplateContext = {
     ...ctx,
-    BodyStripped: bodyStripped ?? ctx.Body,
+    // Keep BodyStripped aligned with Body (best default for agent prompts).
+    // RawBody is reserved for command/directive parsing and may omit context.
+    BodyStripped: bodyStripped ?? ctx.Body ?? ctx.CommandBody ?? ctx.RawBody,
     SessionId: sessionId,
     IsNewSession: isNewSession ? "true" : "false",
   };

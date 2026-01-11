@@ -4,7 +4,8 @@ import {
   resolveAgentWorkspaceDir,
 } from "../agents/agent-scope.js";
 import { ensureAuthProfileStore } from "../agents/auth-profiles.js";
-import { runClaudeCliAgent } from "../agents/claude-cli-runner.js";
+import { runCliAgent } from "../agents/cli-runner.js";
+import { getCliSessionId, setCliSessionId } from "../agents/cli-session.js";
 import { lookupContextTokens } from "../agents/context.js";
 import {
   DEFAULT_CONTEXT_TOKENS,
@@ -15,6 +16,7 @@ import { loadModelCatalog } from "../agents/model-catalog.js";
 import { runWithModelFallback } from "../agents/model-fallback.js";
 import {
   buildAllowedModelSet,
+  isCliProvider,
   modelKey,
   resolveConfiguredModelRef,
   resolveThinkingDefault,
@@ -66,8 +68,17 @@ import {
 } from "../utils/message-provider.js";
 import { normalizeE164 } from "../utils.js";
 
+/** Image content block for Claude API multimodal messages. */
+type ImageContent = {
+  type: "image";
+  data: string;
+  mimeType: string;
+};
+
 type AgentCommandOpts = {
   message: string;
+  /** Optional image attachments for multimodal messages. */
+  images?: ImageContent[];
   to?: string;
   sessionId?: string;
   sessionKey?: string;
@@ -352,7 +363,7 @@ export async function agentCommand(
     if (overrideModel) {
       const key = modelKey(overrideProvider, overrideModel);
       if (
-        overrideProvider !== "claude-cli" &&
+        !isCliProvider(overrideProvider, cfg) &&
         allowedModelKeys.size > 0 &&
         !allowedModelKeys.has(key)
       ) {
@@ -371,7 +382,7 @@ export async function agentCommand(
     const candidateProvider = storedProviderOverride || defaultProvider;
     const key = modelKey(candidateProvider, storedModelOverride);
     if (
-      candidateProvider === "claude-cli" ||
+      isCliProvider(candidateProvider, cfg) ||
       allowedModelKeys.size === 0 ||
       allowedModelKeys.has(key)
     ) {
@@ -413,7 +424,6 @@ export async function agentCommand(
   let result: Awaited<ReturnType<typeof runEmbeddedPiAgent>>;
   let fallbackProvider = provider;
   let fallbackModel = model;
-  const claudeSessionId = sessionEntry?.claudeCliSessionId?.trim();
   try {
     const messageProvider = resolveMessageProvider(
       opts.messageProvider,
@@ -424,8 +434,9 @@ export async function agentCommand(
       provider,
       model,
       run: (providerOverride, modelOverride) => {
-        if (providerOverride === "claude-cli") {
-          return runClaudeCliAgent({
+        if (isCliProvider(providerOverride, cfg)) {
+          const cliSessionId = getCliSessionId(sessionEntry, providerOverride);
+          return runCliAgent({
             sessionId,
             sessionKey,
             sessionFile,
@@ -438,7 +449,8 @@ export async function agentCommand(
             timeoutMs,
             runId,
             extraSystemPrompt: opts.extraSystemPrompt,
-            claudeSessionId,
+            cliSessionId,
+            images: opts.images,
           });
         }
         return runEmbeddedPiAgent({
@@ -450,6 +462,7 @@ export async function agentCommand(
           config: cfg,
           skillsSnapshot,
           prompt: body,
+          images: opts.images,
           provider: providerOverride,
           model: modelOverride,
           authProfileId: sessionEntry?.authProfileOverride,
@@ -532,9 +545,9 @@ export async function agentCommand(
       model: modelUsed,
       contextTokens,
     };
-    if (providerUsed === "claude-cli") {
+    if (isCliProvider(providerUsed, cfg)) {
       const cliSessionId = result.meta.agentMeta?.sessionId?.trim();
-      if (cliSessionId) next.claudeCliSessionId = cliSessionId;
+      if (cliSessionId) setCliSessionId(next, providerUsed, cliSessionId);
     }
     next.abortedLastRun = result.meta.aborted ?? false;
     if (hasNonzeroUsage(usage)) {

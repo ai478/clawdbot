@@ -1,5 +1,6 @@
 import AppKit
 import ClawdbotChatUI
+import ClawdbotDiscovery
 import ClawdbotIPC
 import SwiftUI
 
@@ -115,6 +116,11 @@ extension OnboardingView {
                             .foregroundStyle(.secondary)
                         if self.gatewayDiscovery.gateways.isEmpty {
                             ProgressView().controlSize(.small)
+                            Button("Refresh") {
+                                self.gatewayDiscovery.refreshWideAreaFallbackNow(timeoutSeconds: 5.0)
+                            }
+                            .buttonStyle(.link)
+                            .help("Retry Tailscale discovery (DNS-SD).")
                         }
                         Spacer(minLength: 0)
                     }
@@ -648,7 +654,7 @@ extension OnboardingView {
                 .frame(maxWidth: 520)
                 .fixedSize(horizontal: false, vertical: true)
 
-            self.onboardingCard(padding: 8) {
+            self.onboardingGlassCard(padding: 8) {
                 ClawdbotChatView(viewModel: self.onboardingChatModel, style: .onboarding)
                     .frame(maxHeight: .infinity)
             }

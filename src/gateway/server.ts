@@ -61,7 +61,10 @@ import { startNodeBridgeServer } from "../infra/bridge/server.js";
 import { resolveCanvasHostUrl } from "../infra/canvas-host-url.js";
 import { GatewayLockError } from "../infra/gateway-lock.js";
 import { onHeartbeatEvent } from "../infra/heartbeat-events.js";
-import { startHeartbeatRunner } from "../infra/heartbeat-runner.js";
+import {
+  runHeartbeatOnce,
+  startHeartbeatRunner,
+} from "../infra/heartbeat-runner.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { getMachineDisplayName } from "../infra/machine-name.js";
 import { resolveOutboundTarget } from "../infra/outbound/targets.js";
@@ -110,6 +113,10 @@ import {
   type ResolvedGatewayAuth,
   resolveGatewayAuth,
 } from "./auth.js";
+import {
+  abortChatRunById,
+  type ChatAbortControllerEntry,
+} from "./chat-abort.js";
 import {
   type GatewayReloadPlan,
   type ProviderKind,
@@ -322,6 +329,11 @@ export type GatewayServerOptions = {
    */
   controlUiEnabled?: boolean;
   /**
+   * If false, do not serve `POST /v1/chat/completions`.
+   * Default: config `gateway.http.endpoints.chatCompletions.enabled` (or false when absent).
+   */
+  openAiChatCompletionsEnabled?: boolean;
+  /**
    * Override gateway auth configuration (merges with config).
    */
   auth?: import("../config/config.js").GatewayAuthConfig;
@@ -425,6 +437,10 @@ export async function startGatewayServer(
   }
   const controlUiEnabled =
     opts.controlUiEnabled ?? cfgAtStart.gateway?.controlUi?.enabled ?? true;
+  const openAiChatCompletionsEnabled =
+    opts.openAiChatCompletionsEnabled ??
+    cfgAtStart.gateway?.http?.endpoints?.chatCompletions?.enabled ??
+    false;
   const controlUiBasePath = normalizeControlUiBasePath(
     cfgAtStart.gateway?.controlUi?.basePath,
   );
@@ -608,7 +624,9 @@ export async function startGatewayServer(
     canvasHost,
     controlUiEnabled,
     controlUiBasePath,
+    openAiChatCompletionsEnabled,
     handleHooksRequest,
+    resolvedAuth,
   });
   let bonjourStop: (() => Promise<void>) | null = null;
   let bridge: Awaited<ReturnType<typeof startNodeBridgeServer>> | null = null;
@@ -685,10 +703,7 @@ export async function startGatewayServer(
     }
     return sessionKey;
   };
-  const chatAbortControllers = new Map<
-    string,
-    { controller: AbortController; sessionId: string; sessionKey: string }
-  >();
+  const chatAbortControllers = new Map<string, ChatAbortControllerEntry>();
   setCommandLaneConcurrency("cron", cfgAtStart.cron?.maxConcurrentRuns ?? 1);
   setCommandLaneConcurrency(
     "main",
@@ -714,6 +729,14 @@ export async function startGatewayServer(
         enqueueSystemEvent(text, { sessionKey: resolveMainSessionKey(cfg) });
       },
       requestHeartbeatNow,
+      runHeartbeatOnce: async (opts) => {
+        const runtimeConfig = loadConfig();
+        return await runHeartbeatOnce({
+          cfg: runtimeConfig,
+          reason: opts?.reason,
+          deps: { ...deps, runtime: defaultRuntime },
+        });
+      },
       runIsolatedAgentJob: async ({ job, message }) => {
         const runtimeConfig = loadConfig();
         return await runCronIsolatedAgentTurn({
@@ -967,6 +990,7 @@ export async function startGatewayServer(
     addChatRun,
     removeChatRun,
     chatAbortControllers,
+    chatAbortedRuns: chatRunState.abortedRuns,
     chatRunBuffers,
     chatDeltaSentAt,
     dedupe,
@@ -1191,6 +1215,31 @@ export async function startGatewayServer(
       for (let i = 0; i < dedupe.size - DEDUPE_MAX; i++) {
         dedupe.delete(entries[i][0]);
       }
+    }
+
+    for (const [runId, entry] of chatAbortControllers) {
+      if (now <= entry.expiresAtMs) continue;
+      abortChatRunById(
+        {
+          chatAbortControllers,
+          chatRunBuffers,
+          chatDeltaSentAt,
+          chatAbortedRuns: chatRunState.abortedRuns,
+          removeChatRun,
+          agentRunSeq,
+          broadcast,
+          bridgeSendToSession,
+        },
+        { runId, sessionKey: entry.sessionKey, stopReason: "timeout" },
+      );
+    }
+
+    const ABORTED_RUN_TTL_MS = 60 * 60_000;
+    for (const [runId, abortedAt] of chatRunState.abortedRuns) {
+      if (now - abortedAt <= ABORTED_RUN_TTL_MS) continue;
+      chatRunState.abortedRuns.delete(runId);
+      chatRunBuffers.delete(runId);
+      chatDeltaSentAt.delete(runId);
     }
   }, 60_000);
 
@@ -1636,6 +1685,7 @@ export async function startGatewayServer(
               getHealthCache: () => healthCache,
               refreshHealthSnapshot,
               logHealth,
+              logGateway: log,
               incrementPresenceVersion: () => {
                 presenceVersion += 1;
                 return presenceVersion;
@@ -1647,6 +1697,7 @@ export async function startGatewayServer(
               hasConnectedMobileNode,
               agentRunSeq,
               chatAbortControllers,
+              chatAbortedRuns: chatRunState.abortedRuns,
               chatRunBuffers,
               chatDeltaSentAt,
               addChatRun,
