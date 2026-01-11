@@ -27,9 +27,25 @@ ENV PNPM_HOME="/home/node/.local/share/pnpm"
 ENV GOPATH="/home/node/go"
 ENV PATH="$PNPM_HOME:$GOPATH/bin:$PATH"
 
-RUN mkdir -p "$PNPM_HOME" "$GOPATH" && \
-    pnpm config set store-dir /home/node/.local/share/pnpm/store && \
-    chown -R 1001:1001 /home/node
+# Map 'node' user to UID 1001 to match host user 'clawdis'
+# We also ensure the home directory and cache areas are fully owned by node
+RUN usermod -u 1001 node && \
+    groupmod -g 1001 node && \
+    rm -rf /home/node/.local /home/node/go /home/node/.cache && \
+    mkdir -p /home/node/.local/share/pnpm/store /home/node/go /home/node/.cache /app && \
+    chown -R node:node /home/node /app
+
+USER node
+
+# Configure pnpm and Go for global installs (required for skills)
+ENV SHELL=/bin/bash
+ENV PNPM_HOME="/home/node/.local/share/pnpm"
+ENV GOPATH="/home/node/go"
+ENV PATH="$PNPM_HOME:$GOPATH/bin:$PATH"
+
+# Ensure pnpm uses the local store and home for everything
+RUN pnpm config set store-dir /home/node/.local/share/pnpm/store && \
+    pnpm config set prefix /home/node/.local
 
 WORKDIR /app
 
@@ -41,14 +57,14 @@ RUN if [ -n "$CLAWDBOT_DOCKER_APT_PACKAGES" ]; then \
       rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     fi
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY ui/package.json ./ui/package.json
-COPY patches ./patches
-COPY scripts ./scripts
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY --chown=node:node ui/package.json ./ui/package.json
+COPY --chown=node:node patches ./patches
+COPY --chown=node:node scripts ./scripts
 
 RUN pnpm install --frozen-lockfile
 
-COPY . .
+COPY --chown=node:node . .
 RUN pnpm build
 RUN pnpm ui:install
 RUN pnpm ui:build
