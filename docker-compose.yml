@@ -44,6 +44,8 @@ services:
       TERM: xterm-256color
       PATH: /home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/bin:/usr/bin:/bin
       HOMEBREW_NO_AUTO_UPDATE: 1
+      CLAWDBOT_GATEWAY_TOKEN: ${CLAWDBOT_GATEWAY_TOKEN}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
       GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
