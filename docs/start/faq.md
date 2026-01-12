@@ -208,7 +208,8 @@ Clawdbot memory is just Markdown files in the agent workspace:
 - Curated long-term notes in `MEMORY.md` (main/private sessions only)
 
 Clawdbot also runs a **silent pre-compaction memory flush** to remind the model
-to write durable notes before auto-compaction. See [Memory](/concepts/memory).
+to write durable notes before auto-compaction. This only runs when the workspace
+is writable (read-only sandboxes skip it). See [Memory](/concepts/memory).
 
 ## Where things live on disk
 
@@ -447,7 +448,7 @@ Notes:
 ### Do I need to add a “bot account” to a WhatsApp group?
 
 No. Clawdbot runs on **your own account**, so if you’re in the group, Clawdbot can see it.
-By default, anyone in that group can **mention** the bot to trigger a reply.
+By default, group replies are blocked until you allow senders (`groupPolicy: "allowlist"`).
 
 If you want only **you** to be able to trigger group replies:
 

@@ -1551,6 +1551,58 @@ describe("directive behavior", () => {
     });
   });
 
+  it("merges config allowlist models even when catalog is present", async () => {
+    await withTempHome(async (home) => {
+      vi.mocked(runEmbeddedPiAgent).mockReset();
+      // Catalog present but missing custom providers: /model should still include
+      // allowlisted provider/model keys from config.
+      vi.mocked(loadModelCatalog).mockResolvedValueOnce([
+        {
+          provider: "anthropic",
+          id: "claude-opus-4-5",
+          name: "Claude Opus 4.5",
+        },
+        { provider: "openai", id: "gpt-4.1-mini", name: "GPT-4.1 mini" },
+      ]);
+      const storePath = path.join(home, "sessions.json");
+
+      const res = await getReplyFromConfig(
+        { Body: "/model list", From: "+1222", To: "+1222" },
+        {},
+        {
+          agents: {
+            defaults: {
+              model: { primary: "anthropic/claude-opus-4-5" },
+              workspace: path.join(home, "clawd"),
+              models: {
+                "anthropic/claude-opus-4-5": {},
+                "openai/gpt-4.1-mini": {},
+                "minimax/MiniMax-M2.1": { alias: "minimax" },
+              },
+            },
+          },
+          models: {
+            mode: "merge",
+            providers: {
+              minimax: {
+                baseUrl: "https://api.minimax.io/anthropic",
+                api: "anthropic-messages",
+                models: [{ id: "MiniMax-M2.1", name: "MiniMax M2.1" }],
+              },
+            },
+          },
+          session: { store: storePath },
+        },
+      );
+
+      const text = Array.isArray(res) ? res[0]?.text : res?.text;
+      expect(text).toContain("claude-opus-4-5 — anthropic");
+      expect(text).toContain("gpt-4.1-mini — openai");
+      expect(text).toContain("MiniMax-M2.1 — minimax");
+      expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
+    });
+  });
+
   it("does not repeat missing auth labels on /model list", async () => {
     await withTempHome(async (home) => {
       vi.mocked(runEmbeddedPiAgent).mockReset();
@@ -1642,6 +1694,138 @@ describe("directive behavior", () => {
       const entry = store["agent:main:main"];
       expect(entry.modelOverride).toBe("claude-opus-4-5");
       expect(entry.providerOverride).toBe("anthropic");
+      expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
+    });
+  });
+
+  it("supports fuzzy model matches on /model directive", async () => {
+    await withTempHome(async (home) => {
+      vi.mocked(runEmbeddedPiAgent).mockReset();
+      const storePath = path.join(home, "sessions.json");
+
+      const res = await getReplyFromConfig(
+        { Body: "/model kimi", From: "+1222", To: "+1222" },
+        {},
+        {
+          agents: {
+            defaults: {
+              model: { primary: "anthropic/claude-opus-4-5" },
+              workspace: path.join(home, "clawd"),
+              models: {
+                "anthropic/claude-opus-4-5": {},
+                "moonshot/kimi-k2-0905-preview": {},
+              },
+            },
+          },
+          models: {
+            mode: "merge",
+            providers: {
+              moonshot: {
+                baseUrl: "https://api.moonshot.ai/v1",
+                apiKey: "sk-test",
+                api: "openai-completions",
+                models: [{ id: "kimi-k2-0905-preview", name: "Kimi K2" }],
+              },
+            },
+          },
+          session: { store: storePath },
+        },
+      );
+
+      const text = Array.isArray(res) ? res[0]?.text : res?.text;
+      expect(text).toContain("Model set to moonshot/kimi-k2-0905-preview");
+      const store = loadSessionStore(storePath);
+      const entry = store["agent:main:main"];
+      expect(entry.modelOverride).toBe("kimi-k2-0905-preview");
+      expect(entry.providerOverride).toBe("moonshot");
+      expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
+    });
+  });
+
+  it("resolves provider-less exact model ids via fuzzy matching when unambiguous", async () => {
+    await withTempHome(async (home) => {
+      vi.mocked(runEmbeddedPiAgent).mockReset();
+      const storePath = path.join(home, "sessions.json");
+
+      const res = await getReplyFromConfig(
+        { Body: "/model kimi-k2-0905-preview", From: "+1222", To: "+1222" },
+        {},
+        {
+          agents: {
+            defaults: {
+              model: { primary: "anthropic/claude-opus-4-5" },
+              workspace: path.join(home, "clawd"),
+              models: {
+                "anthropic/claude-opus-4-5": {},
+                "moonshot/kimi-k2-0905-preview": {},
+              },
+            },
+          },
+          models: {
+            mode: "merge",
+            providers: {
+              moonshot: {
+                baseUrl: "https://api.moonshot.ai/v1",
+                apiKey: "sk-test",
+                api: "openai-completions",
+                models: [{ id: "kimi-k2-0905-preview", name: "Kimi K2" }],
+              },
+            },
+          },
+          session: { store: storePath },
+        },
+      );
+
+      const text = Array.isArray(res) ? res[0]?.text : res?.text;
+      expect(text).toContain("Model set to moonshot/kimi-k2-0905-preview");
+      const store = loadSessionStore(storePath);
+      const entry = store["agent:main:main"];
+      expect(entry.modelOverride).toBe("kimi-k2-0905-preview");
+      expect(entry.providerOverride).toBe("moonshot");
+      expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
+    });
+  });
+
+  it("supports fuzzy matches within a provider on /model provider/model", async () => {
+    await withTempHome(async (home) => {
+      vi.mocked(runEmbeddedPiAgent).mockReset();
+      const storePath = path.join(home, "sessions.json");
+
+      const res = await getReplyFromConfig(
+        { Body: "/model moonshot/kimi", From: "+1222", To: "+1222" },
+        {},
+        {
+          agents: {
+            defaults: {
+              model: { primary: "anthropic/claude-opus-4-5" },
+              workspace: path.join(home, "clawd"),
+              models: {
+                "anthropic/claude-opus-4-5": {},
+                "moonshot/kimi-k2-0905-preview": {},
+              },
+            },
+          },
+          models: {
+            mode: "merge",
+            providers: {
+              moonshot: {
+                baseUrl: "https://api.moonshot.ai/v1",
+                apiKey: "sk-test",
+                api: "openai-completions",
+                models: [{ id: "kimi-k2-0905-preview", name: "Kimi K2" }],
+              },
+            },
+          },
+          session: { store: storePath },
+        },
+      );
+
+      const text = Array.isArray(res) ? res[0]?.text : res?.text;
+      expect(text).toContain("Model set to moonshot/kimi-k2-0905-preview");
+      const store = loadSessionStore(storePath);
+      const entry = store["agent:main:main"];
+      expect(entry.modelOverride).toBe("kimi-k2-0905-preview");
+      expect(entry.providerOverride).toBe("moonshot");
       expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
     });
   });

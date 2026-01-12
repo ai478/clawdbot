@@ -40,6 +40,7 @@ import {
 import { normalizeMainKey } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
 import { INTERNAL_MESSAGE_PROVIDER } from "../utils/message-provider.js";
+import { isReasoningTagProvider } from "../utils/provider-utils.js";
 import { resolveCommandAuthorization } from "./command-auth.js";
 import { hasControlCommand } from "./command-detection.js";
 import {
@@ -487,9 +488,10 @@ export async function getReplyFromConfig(
     .map((entry) => entry.alias?.trim())
     .filter((alias): alias is string => Boolean(alias))
     .filter((alias) => !reservedCommands.has(alias.toLowerCase()));
+  const allowStatusDirective = allowTextCommands && command.isAuthorizedSender;
   let parsedDirectives = parseInlineDirectives(commandSource, {
     modelAliases: configuredAliases,
-    allowStatusDirective: command.isAuthorizedSender,
+    allowStatusDirective,
   });
   if (
     isGroup &&
@@ -520,7 +522,7 @@ export async function getReplyFromConfig(
     if (noMentions.trim().length > 0) {
       const directiveOnlyCheck = parseInlineDirectives(noMentions, {
         modelAliases: configuredAliases,
-        allowStatusDirective: command.isAuthorizedSender,
+        allowStatusDirective,
       });
       if (directiveOnlyCheck.cleaned.trim().length > 0) {
         const allowInlineStatus =
@@ -554,7 +556,7 @@ export async function getReplyFromConfig(
     if (!sessionCtx.CommandBody && !sessionCtx.RawBody) {
       return parseInlineDirectives(existingBody, {
         modelAliases: configuredAliases,
-        allowStatusDirective: command.isAuthorizedSender,
+        allowStatusDirective,
       }).cleaned;
     }
 
@@ -562,7 +564,7 @@ export async function getReplyFromConfig(
     if (markerIndex < 0) {
       return parseInlineDirectives(existingBody, {
         modelAliases: configuredAliases,
-        allowStatusDirective: command.isAuthorizedSender,
+        allowStatusDirective,
       }).cleaned;
     }
 
@@ -575,7 +577,7 @@ export async function getReplyFromConfig(
     );
     const cleanedTail = parseInlineDirectives(tail, {
       modelAliases: configuredAliases,
-      allowStatusDirective: command.isAuthorizedSender,
+      allowStatusDirective,
     }).cleaned;
     return `${head}${cleanedTail}`;
   })();
@@ -697,6 +699,7 @@ export async function getReplyFromConfig(
     : directives.rawModelDirective;
 
   if (!command.isAuthorizedSender) {
+    // Treat slash tokens as plain text for unauthorized senders.
     cleanedBody = existingBody;
     sessionCtx.Body = cleanedBody;
     sessionCtx.BodyStripped = cleanedBody;
@@ -1154,6 +1157,7 @@ export async function getReplyFromConfig(
     resolvedQueue.mode === "collect" ||
     resolvedQueue.mode === "steer-backlog";
   const authProfileId = sessionEntry?.authProfileOverride;
+
   const followupRun = {
     prompt: queuedBody,
     messageId: sessionCtx.MessageSid,
@@ -1192,7 +1196,7 @@ export async function getReplyFromConfig(
       ownerNumbers:
         command.ownerList.length > 0 ? command.ownerList : undefined,
       extraSystemPrompt: extraSystemPrompt || undefined,
-      ...(provider === "ollama" ? { enforceFinalTag: true } : {}),
+      ...(isReasoningTagProvider(provider) ? { enforceFinalTag: true } : {}),
     },
   };
 

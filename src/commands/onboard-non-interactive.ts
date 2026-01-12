@@ -16,7 +16,11 @@ import {
 } from "../config/config.js";
 import { resolveGatewayLaunchAgentLabel } from "../daemon/constants.js";
 import { resolveGatewayProgramArguments } from "../daemon/program-args.js";
-import { resolvePreferredNodePath } from "../daemon/runtime-paths.js";
+import {
+  renderSystemNodeWarning,
+  resolvePreferredNodePath,
+  resolveSystemNodeInfo,
+} from "../daemon/runtime-paths.js";
 import { resolveGatewayService } from "../daemon/service.js";
 import { buildServiceEnvironment } from "../daemon/service-env.js";
 import { isSystemdUserServiceAvailable } from "../daemon/systemd.js";
@@ -305,7 +309,11 @@ export async function runNonInteractiveOnboarding(
       mode: "api_key",
     });
     nextConfig = applyMoonshotConfig(nextConfig);
-  } else if (authChoice === "minimax-cloud" || authChoice === "minimax-api") {
+  } else if (
+    authChoice === "minimax-cloud" ||
+    authChoice === "minimax-api" ||
+    authChoice === "minimax-api-lightning"
+  ) {
     const resolved = await resolveNonInteractiveApiKey({
       provider: "minimax",
       cfg: baseConfig,
@@ -323,7 +331,10 @@ export async function runNonInteractiveOnboarding(
       provider: "minimax",
       mode: "api_key",
     });
-    const modelId = "MiniMax-M2.1";
+    const modelId =
+      authChoice === "minimax-api-lightning"
+        ? "MiniMax-M2.1-lightning"
+        : "MiniMax-M2.1";
     nextConfig = applyMinimaxApiConfig(nextConfig, modelId);
   } else if (authChoice === "claude-cli") {
     const store = ensureAuthProfileStore(undefined, {
@@ -528,6 +539,14 @@ export async function runNonInteractiveOnboarding(
           runtime: daemonRuntimeRaw,
           nodePath,
         });
+      if (daemonRuntimeRaw === "node") {
+        const systemNode = await resolveSystemNodeInfo({ env: process.env });
+        const warning = renderSystemNodeWarning(
+          systemNode,
+          programArguments[0],
+        );
+        if (warning) runtime.log(warning);
+      }
       const environment = buildServiceEnvironment({
         env: process.env,
         port,
