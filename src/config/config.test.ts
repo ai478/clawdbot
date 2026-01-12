@@ -510,6 +510,56 @@ describe("config pruning defaults", () => {
   });
 });
 
+describe("config compaction settings", () => {
+  it("preserves memory flush config values", async () => {
+    await withTempHome(async (home) => {
+      const configDir = path.join(home, ".clawdbot");
+      await fs.mkdir(configDir, { recursive: true });
+      await fs.writeFile(
+        path.join(configDir, "clawdbot.json"),
+        JSON.stringify(
+          {
+            agents: {
+              defaults: {
+                compaction: {
+                  reserveTokensFloor: 12_345,
+                  memoryFlush: {
+                    enabled: false,
+                    softThresholdTokens: 1234,
+                    prompt: "Write notes.",
+                    systemPrompt: "Flush memory now.",
+                  },
+                },
+              },
+            },
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+
+      vi.resetModules();
+      const { loadConfig } = await import("./config.js");
+      const cfg = loadConfig();
+
+      expect(cfg.agents?.defaults?.compaction?.reserveTokensFloor).toBe(12_345);
+      expect(cfg.agents?.defaults?.compaction?.memoryFlush?.enabled).toBe(
+        false,
+      );
+      expect(
+        cfg.agents?.defaults?.compaction?.memoryFlush?.softThresholdTokens,
+      ).toBe(1234);
+      expect(cfg.agents?.defaults?.compaction?.memoryFlush?.prompt).toBe(
+        "Write notes.",
+      );
+      expect(cfg.agents?.defaults?.compaction?.memoryFlush?.systemPrompt).toBe(
+        "Flush memory now.",
+      );
+    });
+  });
+});
+
 describe("config discord", () => {
   let previousHome: string | undefined;
 
@@ -671,9 +721,25 @@ describe("Nix integration (U3, U5, U9)", () => {
         { CLAWDBOT_CONFIG_PATH: "/nix/store/abc/clawdbot.json" },
         async () => {
           const { CONFIG_PATH_CLAWDBOT } = await import("./config.js");
-          expect(CONFIG_PATH_CLAWDBOT).toBe("/nix/store/abc/clawdbot.json");
+          expect(CONFIG_PATH_CLAWDBOT).toBe(
+            path.resolve("/nix/store/abc/clawdbot.json"),
+          );
         },
       );
+    });
+
+    it("CONFIG_PATH_CLAWDBOT expands ~ in CLAWDBOT_CONFIG_PATH override", async () => {
+      await withTempHome(async (home) => {
+        await withEnvOverride(
+          { CLAWDBOT_CONFIG_PATH: "~/.clawdbot/custom.json" },
+          async () => {
+            const { CONFIG_PATH_CLAWDBOT } = await import("./config.js");
+            expect(CONFIG_PATH_CLAWDBOT).toBe(
+              path.join(home, ".clawdbot", "custom.json"),
+            );
+          },
+        );
+      });
     });
 
     it("CONFIG_PATH_CLAWDBOT uses STATE_DIR_CLAWDBOT when only state dir is overridden", async () => {
@@ -689,6 +755,71 @@ describe("Nix integration (U3, U5, U9)", () => {
           );
         },
       );
+    });
+  });
+
+  describe("U5b: tilde expansion for config paths", () => {
+    it("expands ~ in common path-ish config fields", async () => {
+      await withTempHome(async (home) => {
+        const configDir = path.join(home, ".clawdbot");
+        await fs.mkdir(configDir, { recursive: true });
+        await fs.writeFile(
+          path.join(configDir, "clawdbot.json"),
+          JSON.stringify(
+            {
+              plugins: {
+                load: {
+                  paths: ["~/plugins/demo-plugin"],
+                },
+              },
+              agents: {
+                defaults: { workspace: "~/ws-default" },
+                list: [
+                  {
+                    id: "main",
+                    workspace: "~/ws-agent",
+                    agentDir: "~/.clawdbot/agents/main",
+                    sandbox: { workspaceRoot: "~/sandbox-root" },
+                  },
+                ],
+              },
+              whatsapp: {
+                accounts: {
+                  personal: {
+                    authDir: "~/.clawdbot/credentials/wa-personal",
+                  },
+                },
+              },
+            },
+            null,
+            2,
+          ),
+          "utf-8",
+        );
+
+        vi.resetModules();
+        const { loadConfig } = await import("./config.js");
+        const cfg = loadConfig();
+
+        expect(cfg.plugins?.load?.paths?.[0]).toBe(
+          path.join(home, "plugins", "demo-plugin"),
+        );
+        expect(cfg.agents?.defaults?.workspace).toBe(
+          path.join(home, "ws-default"),
+        );
+        expect(cfg.agents?.list?.[0]?.workspace).toBe(
+          path.join(home, "ws-agent"),
+        );
+        expect(cfg.agents?.list?.[0]?.agentDir).toBe(
+          path.join(home, ".clawdbot", "agents", "main"),
+        );
+        expect(cfg.agents?.list?.[0]?.sandbox?.workspaceRoot).toBe(
+          path.join(home, "sandbox-root"),
+        );
+        expect(cfg.whatsapp?.accounts?.personal?.authDir).toBe(
+          path.join(home, ".clawdbot", "credentials", "wa-personal"),
+        );
+      });
     });
   });
 
@@ -1019,7 +1150,7 @@ describe("legacy config detection", () => {
     expect(res.changes).toContain("Moved agent.tools.allow → tools.allow.");
     expect(res.changes).toContain("Moved agent.tools.deny → tools.deny.");
     expect(res.changes).toContain("Moved agent.elevated → tools.elevated.");
-    expect(res.changes).toContain("Moved agent.bash → tools.bash.");
+    expect(res.changes).toContain("Moved agent.bash → tools.exec.");
     expect(res.changes).toContain(
       "Moved agent.sandbox.tools → tools.sandbox.tools.",
     );
@@ -1037,7 +1168,7 @@ describe("legacy config detection", () => {
       enabled: true,
       allowFrom: { discord: ["user:1"] },
     });
-    expect(res.config?.tools?.bash).toEqual({ timeoutSec: 12 });
+    expect(res.config?.tools?.exec).toEqual({ timeoutSec: 12 });
     expect(res.config?.tools?.sandbox?.tools).toEqual({
       allow: ["browser.open"],
     });

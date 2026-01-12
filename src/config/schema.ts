@@ -23,6 +23,19 @@ export type ConfigSchemaResponse = {
   generatedAt: string;
 };
 
+export type PluginUiMetadata = {
+  id: string;
+  name?: string;
+  description?: string;
+  configUiHints?: Record<
+    string,
+    Pick<
+      ConfigUiHint,
+      "label" | "help" | "advanced" | "sensitive" | "placeholder"
+    >
+  >;
+};
+
 const GROUP_LABELS: Record<string, string> = {
   wizard: "Wizard",
   logging: "Logging",
@@ -94,6 +107,8 @@ const FIELD_LABELS: Record<string, string> = {
   "tools.audio.transcription.args": "Audio Transcription Args",
   "tools.audio.transcription.timeoutSeconds":
     "Audio Transcription Timeout (sec)",
+  "tools.exec.applyPatch.enabled": "Enable apply_patch",
+  "tools.exec.applyPatch.allowModels": "apply_patch Model Allowlist",
   "gateway.controlUi.basePath": "Control UI Base Path",
   "gateway.http.endpoints.chatCompletions.enabled":
     "OpenAI Chat Completions Endpoint",
@@ -181,6 +196,10 @@ const FIELD_HELP: Record<string, string> = {
     'Hot reload strategy for config changes ("hybrid" recommended).',
   "gateway.reload.debounceMs":
     "Debounce window (ms) before applying config changes.",
+  "tools.exec.applyPatch.enabled":
+    "Experimental. Enables apply_patch for OpenAI models when allowed by tool policy.",
+  "tools.exec.applyPatch.allowModels":
+    'Optional allowlist of model ids (e.g. "gpt-5.2" or "openai/gpt-5.2").',
   "slack.allowBots":
     "Allow bot-authored messages to trigger Slack replies (default: false).",
   "auth.profiles": "Named auth profiles (provider + mode + optional email).",
@@ -327,10 +346,52 @@ function applySensitiveHints(hints: ConfigUiHints): ConfigUiHints {
   return next;
 }
 
-let cached: ConfigSchemaResponse | null = null;
+function applyPluginHints(
+  hints: ConfigUiHints,
+  plugins: PluginUiMetadata[],
+): ConfigUiHints {
+  const next: ConfigUiHints = { ...hints };
+  for (const plugin of plugins) {
+    const id = plugin.id.trim();
+    if (!id) continue;
+    const name = (plugin.name ?? id).trim() || id;
+    const basePath = `plugins.entries.${id}`;
 
-export function buildConfigSchema(): ConfigSchemaResponse {
-  if (cached) return cached;
+    next[basePath] = {
+      ...next[basePath],
+      label: name,
+      help: plugin.description
+        ? `${plugin.description} (plugin: ${id})`
+        : `Plugin entry for ${id}.`,
+    };
+    next[`${basePath}.enabled`] = {
+      ...next[`${basePath}.enabled`],
+      label: `Enable ${name}`,
+    };
+    next[`${basePath}.config`] = {
+      ...next[`${basePath}.config`],
+      label: `${name} Config`,
+      help: `Plugin-defined config payload for ${id}.`,
+    };
+
+    const uiHints = plugin.configUiHints ?? {};
+    for (const [relPathRaw, hint] of Object.entries(uiHints)) {
+      const relPath = relPathRaw.trim().replace(/^\./, "");
+      if (!relPath) continue;
+      const key = `${basePath}.config.${relPath}`;
+      next[key] = {
+        ...next[key],
+        ...hint,
+      };
+    }
+  }
+  return next;
+}
+
+let cachedBase: ConfigSchemaResponse | null = null;
+
+function buildBaseConfigSchema(): ConfigSchemaResponse {
+  if (cachedBase) return cachedBase;
   const schema = ClawdbotSchema.toJSONSchema({
     target: "draft-07",
     unrepresentable: "any",
@@ -343,6 +404,19 @@ export function buildConfigSchema(): ConfigSchemaResponse {
     version: VERSION,
     generatedAt: new Date().toISOString(),
   };
-  cached = next;
+  cachedBase = next;
   return next;
+}
+
+export function buildConfigSchema(params?: {
+  plugins?: PluginUiMetadata[];
+}): ConfigSchemaResponse {
+  const base = buildBaseConfigSchema();
+  const plugins = params?.plugins ?? [];
+  if (plugins.length === 0) return base;
+  const merged = applySensitiveHints(applyPluginHints(base.uiHints, plugins));
+  return {
+    ...base,
+    uiHints: merged,
+  };
 }

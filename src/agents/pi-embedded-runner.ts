@@ -51,7 +51,7 @@ import {
   markAuthProfileGood,
   markAuthProfileUsed,
 } from "./auth-profiles.js";
-import type { BashElevatedDefaults } from "./bash-tools.js";
+import type { ExecElevatedDefaults, ExecToolDefaults } from "./bash-tools.js";
 import {
   CONTEXT_WINDOW_HARD_MIN_TOKENS,
   CONTEXT_WINDOW_WARN_BELOW_TOKENS,
@@ -73,7 +73,10 @@ import {
 import { normalizeModelCompat } from "./model-compat.js";
 import { ensureClawdbotModelsJson } from "./models-config.js";
 import type { MessagingToolSend } from "./pi-embedded-messaging.js";
-import { ensurePiCompactionReserveTokens } from "./pi-settings.js";
+import {
+  ensurePiCompactionReserveTokens,
+  resolveCompactionReserveTokensFloor,
+} from "./pi-settings.js";
 import { acquireSessionWriteLock } from "./session-write-lock.js";
 
 export type { MessagingToolSend } from "./pi-embedded-messaging.js";
@@ -768,11 +771,11 @@ function describeUnknownError(error: unknown): string {
 
 export function buildEmbeddedSandboxInfo(
   sandbox?: Awaited<ReturnType<typeof resolveSandboxContext>>,
-  bashElevated?: BashElevatedDefaults,
+  execElevated?: ExecElevatedDefaults,
 ): EmbeddedSandboxInfo | undefined {
   if (!sandbox?.enabled) return undefined;
   const elevatedAllowed = Boolean(
-    bashElevated?.enabled && bashElevated.allowed,
+    execElevated?.enabled && execElevated.allowed,
   );
   return {
     enabled: true,
@@ -790,7 +793,7 @@ export function buildEmbeddedSandboxInfo(
       ? {
           elevated: {
             allowed: true,
-            defaultLevel: bashElevated?.defaultLevel ?? "off",
+            defaultLevel: execElevated?.defaultLevel ?? "off",
           },
         }
       : {}),
@@ -949,6 +952,16 @@ function mapThinkingLevel(level?: ThinkLevel): ThinkingLevel {
   return level;
 }
 
+function resolveExecToolDefaults(
+  config?: ClawdbotConfig,
+): ExecToolDefaults | undefined {
+  const tools = config?.tools;
+  if (!tools) return undefined;
+  if (!tools.exec) return tools.bash;
+  if (!tools.bash) return tools.exec;
+  return { ...tools.bash, ...tools.exec };
+}
+
 function resolveModel(
   provider: string,
   modelId: string,
@@ -987,7 +1000,7 @@ export async function compactEmbeddedPiSession(params: {
   model?: string;
   thinkLevel?: ThinkLevel;
   reasoningLevel?: ReasoningLevel;
-  bashElevated?: BashElevatedDefaults;
+  bashElevated?: ExecElevatedDefaults;
   customInstructions?: string;
   lane?: string;
   enqueue?: typeof enqueueCommand;
@@ -1087,8 +1100,8 @@ export async function compactEmbeddedPiSession(params: {
         const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
         const runAbortController = new AbortController();
         const tools = createClawdbotCodingTools({
-          bash: {
-            ...params.config?.tools?.bash,
+          exec: {
+            ...resolveExecToolDefaults(params.config),
             elevated: params.bashElevated,
           },
           sandbox,
@@ -1100,6 +1113,7 @@ export async function compactEmbeddedPiSession(params: {
           config: params.config,
           abortSignal: runAbortController.signal,
           modelProvider: model.provider,
+          modelId,
           modelAuthMode: resolveModelAuthMode(model.provider, params.config),
           // No currentChannelId/currentThreadTs for compaction - not in message context
         });
@@ -1173,7 +1187,12 @@ export async function compactEmbeddedPiSession(params: {
             effectiveWorkspace,
             agentDir,
           );
-          ensurePiCompactionReserveTokens({ settingsManager });
+          ensurePiCompactionReserveTokens({
+            settingsManager,
+            minReserveTokens: resolveCompactionReserveTokensFloor(
+              params.config,
+            ),
+          });
           const additionalExtensionPaths = buildEmbeddedExtensionPaths({
             cfg: params.config,
             sessionManager,
@@ -1289,7 +1308,7 @@ export async function runEmbeddedPiAgent(params: {
   thinkLevel?: ThinkLevel;
   verboseLevel?: VerboseLevel;
   reasoningLevel?: ReasoningLevel;
-  bashElevated?: BashElevatedDefaults;
+  bashElevated?: ExecElevatedDefaults;
   timeoutMs: number;
   runId: string;
   abortSignal?: AbortSignal;
@@ -1303,6 +1322,8 @@ export async function runEmbeddedPiAgent(params: {
     mediaUrls?: string[];
     audioAsVoice?: boolean;
   }) => void | Promise<void>;
+  /** Flush pending block replies (e.g., before tool execution to preserve message boundaries). */
+  onBlockReplyFlush?: () => void | Promise<void>;
   blockReplyBreak?: "text_end" | "message_end";
   blockReplyChunking?: BlockReplyChunking;
   onReasoningStream?: (payload: {
@@ -1461,11 +1482,6 @@ export async function runEmbeddedPiAgent(params: {
             : sandbox.workspaceDir
           : resolvedWorkspace;
         await fs.mkdir(effectiveWorkspace, { recursive: true });
-        await ensureSessionHeader({
-          sessionFile: params.sessionFile,
-          sessionId: params.sessionId,
-          cwd: effectiveWorkspace,
-        });
 
         let restoreSkillEnv: (() => void) | undefined;
         process.chdir(effectiveWorkspace);
@@ -1499,8 +1515,8 @@ export async function runEmbeddedPiAgent(params: {
           // Tool schemas must be provider-compatible (OpenAI requires top-level `type: "object"`).
           // `createClawdbotCodingTools()` normalizes schemas so the session can pass them through unchanged.
           const tools = createClawdbotCodingTools({
-            bash: {
-              ...params.config?.tools?.bash,
+            exec: {
+              ...resolveExecToolDefaults(params.config),
               elevated: params.bashElevated,
             },
             sandbox,
@@ -1512,6 +1528,7 @@ export async function runEmbeddedPiAgent(params: {
             config: params.config,
             abortSignal: runAbortController.signal,
             modelProvider: model.provider,
+            modelId,
             modelAuthMode: resolveModelAuthMode(model.provider, params.config),
             currentChannelId: params.currentChannelId,
             currentThreadTs: params.currentThreadTs,
@@ -1575,7 +1592,12 @@ export async function runEmbeddedPiAgent(params: {
             effectiveWorkspace,
             agentDir,
           );
-          ensurePiCompactionReserveTokens({ settingsManager });
+          ensurePiCompactionReserveTokens({
+            settingsManager,
+            minReserveTokens: resolveCompactionReserveTokensFloor(
+              params.config,
+            ),
+          });
           const additionalExtensionPaths = buildEmbeddedExtensionPaths({
             cfg: params.config,
             sessionManager,
@@ -1659,6 +1681,7 @@ export async function runEmbeddedPiAgent(params: {
               onToolResult: params.onToolResult,
               onReasoningStream: params.onReasoningStream,
               onBlockReply: params.onBlockReply,
+              onBlockReplyFlush: params.onBlockReplyFlush,
               blockReplyBreak: params.blockReplyBreak,
               blockReplyChunking: params.blockReplyChunking,
               onPartialReply: params.onPartialReply,

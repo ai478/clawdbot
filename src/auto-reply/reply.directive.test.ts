@@ -190,9 +190,50 @@ describe("directive behavior", () => {
     });
   });
 
-  it("shows off when /think has no argument and no default set", async () => {
+  it("defaults /think to low for reasoning-capable models when no default set", async () => {
     await withTempHome(async (home) => {
       vi.mocked(runEmbeddedPiAgent).mockReset();
+      vi.mocked(loadModelCatalog).mockResolvedValueOnce([
+        {
+          id: "claude-opus-4-5",
+          name: "Opus 4.5",
+          provider: "anthropic",
+          reasoning: true,
+        },
+      ]);
+
+      const res = await getReplyFromConfig(
+        { Body: "/think", From: "+1222", To: "+1222" },
+        {},
+        {
+          agents: {
+            defaults: {
+              model: "anthropic/claude-opus-4-5",
+              workspace: path.join(home, "clawd"),
+            },
+          },
+          session: { store: path.join(home, "sessions.json") },
+        },
+      );
+
+      const text = Array.isArray(res) ? res[0]?.text : res?.text;
+      expect(text).toContain("Current thinking level: low");
+      expect(text).toContain("Options: off, minimal, low, medium, high.");
+      expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
+    });
+  });
+
+  it("shows off when /think has no argument and model lacks reasoning", async () => {
+    await withTempHome(async (home) => {
+      vi.mocked(runEmbeddedPiAgent).mockReset();
+      vi.mocked(loadModelCatalog).mockResolvedValueOnce([
+        {
+          id: "claude-opus-4-5",
+          name: "Opus 4.5",
+          provider: "anthropic",
+          reasoning: false,
+        },
+      ]);
 
       const res = await getReplyFromConfig(
         { Body: "/think", From: "+1222", To: "+1222" },
@@ -1408,9 +1449,9 @@ describe("directive behavior", () => {
 
       const text = Array.isArray(res) ? res[0]?.text : res?.text;
       expect(text).toContain("anthropic/claude-opus-4-5");
-      expect(text).toContain("openai/gpt-4.1-mini");
+      expect(text).toContain("Pick: /model <#> or /model <provider/model>");
+      expect(text).toContain("gpt-4.1-mini — openai");
       expect(text).not.toContain("claude-sonnet-4-1");
-      expect(text).toContain("auth:");
       expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
     });
   });
@@ -1471,9 +1512,9 @@ describe("directive behavior", () => {
       );
 
       const text = Array.isArray(res) ? res[0]?.text : res?.text;
-      expect(text).toContain("anthropic/claude-opus-4-5");
-      expect(text).toContain("openai/gpt-4.1-mini");
-      expect(text).toContain("auth:");
+      expect(text).toContain("Pick: /model <#> or /model <provider/model>");
+      expect(text).toContain("claude-opus-4-5 — anthropic");
+      expect(text).toContain("gpt-4.1-mini — openai");
       expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
     });
   });
@@ -1503,9 +1544,9 @@ describe("directive behavior", () => {
       );
 
       const text = Array.isArray(res) ? res[0]?.text : res?.text;
-      expect(text).toContain("Model catalog unavailable");
-      expect(text).toContain("anthropic/claude-opus-4-5");
-      expect(text).toContain("openai/gpt-4.1-mini");
+      expect(text).toContain("Pick: /model <#> or /model <provider/model>");
+      expect(text).toContain("claude-opus-4-5 — anthropic");
+      expect(text).toContain("gpt-4.1-mini — openai");
       expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
     });
   });
@@ -1533,7 +1574,6 @@ describe("directive behavior", () => {
       );
 
       const text = Array.isArray(res) ? res[0]?.text : res?.text;
-      expect(text).toContain("auth:");
       expect(text).not.toContain("missing (missing)");
       expect(runEmbeddedPiAgent).not.toHaveBeenCalled();
     });

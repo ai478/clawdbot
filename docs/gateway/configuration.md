@@ -638,7 +638,7 @@ Read-only tools + read-only workspace:
         },
         tools: {
           allow: ["read", "sessions_list", "sessions_history", "sessions_send", "sessions_spawn", "session_status"],
-          deny: ["write", "edit", "bash", "process", "browser"]
+          deny: ["write", "edit", "apply_patch", "exec", "process", "browser"]
         }
       }
     ]
@@ -661,7 +661,7 @@ No filesystem access (messaging/session tools enabled):
         },
         tools: {
           allow: ["sessions_list", "sessions_history", "sessions_send", "sessions_spawn", "session_status", "whatsapp", "telegram", "slack", "discord", "gateway"],
-          deny: ["read", "write", "edit", "bash", "process", "browser", "canvas", "nodes", "cron", "gateway", "image"]
+          deny: ["read", "write", "edit", "apply_patch", "exec", "process", "browser", "canvas", "nodes", "cron", "gateway", "image"]
         }
       }
     ]
@@ -1274,7 +1274,7 @@ Example:
         maxConcurrent: 1,
         archiveAfterMinutes: 60
       },
-      bash: {
+      exec: {
         backgroundMs: 10000,
         timeoutSec: 1800,
         cleanupMs: 1800000
@@ -1368,6 +1368,42 @@ Example (adaptive tuned):
 
 See [/concepts/session-pruning](/concepts/session-pruning) for behavior details.
 
+#### `agents.defaults.compaction` (reserve headroom + memory flush)
+
+`agents.defaults.compaction.reserveTokensFloor` enforces a minimum `reserveTokens`
+value for Pi compaction (default: `20000`). Set it to `0` to disable the floor.
+
+`agents.defaults.compaction.memoryFlush` runs a **silent** agentic turn before
+auto-compaction, instructing the model to store durable memories on disk (e.g.
+`memory/YYYY-MM-DD.md`). It triggers when the session token estimate crosses a
+soft threshold below the compaction limit.
+
+Defaults:
+- `memoryFlush.enabled`: `true`
+- `memoryFlush.softThresholdTokens`: `4000`
+- `memoryFlush.prompt` / `memoryFlush.systemPrompt`: built-in defaults with `NO_REPLY`
+- Note: memory flush is skipped when the session workspace is read-only
+  (`agents.defaults.sandbox.workspaceAccess: "ro"` or `"none"`).
+
+Example (tuned):
+```json5
+{
+  agents: {
+    defaults: {
+      compaction: {
+        reserveTokensFloor: 24000,
+        memoryFlush: {
+          enabled: true,
+          softThresholdTokens: 6000,
+          systemPrompt: "Session nearing compaction. Store durable memories now.",
+          prompt: "Write any lasting notes to memory/YYYY-MM-DD.md; reply with NO_REPLY if nothing to store."
+        }
+      }
+    }
+  }
+}
+```
+
 Block streaming:
 - `agents.defaults.blockStreamingDefault`: `"on"`/`"off"` (default off).
 - Provider overrides: `*.blockStreaming` (and per-account variants) to force block streaming on/off.
@@ -1427,10 +1463,14 @@ Z.AI models are available as `zai/<model>` (e.g. `zai/glm-4.7`) and require
 Heartbeats run full agent turns. Shorter intervals burn more tokens; be mindful
 of `every`, keep `HEARTBEAT.md` tiny, and/or choose a cheaper `model`.
 
-`tools.bash` configures background bash defaults:
+`tools.exec` configures background exec defaults:
 - `backgroundMs`: time before auto-background (ms, default 10000)
 - `timeoutSec`: auto-kill after this runtime (seconds, default 1800)
 - `cleanupMs`: how long to keep finished sessions in memory (ms, default 1800000)
+- `applyPatch.enabled`: enable experimental `apply_patch` (OpenAI/OpenAI Codex only; default false)
+- `applyPatch.allowModels`: optional allowlist of model ids (e.g. `gpt-5.2` or `openai/gpt-5.2`)
+Note: `applyPatch` is only under `tools.exec` (no `tools.bash` alias).
+Legacy: `tools.bash` is still accepted as an alias.
 
 `agents.defaults.subagents` configures sub-agent defaults:
 - `maxConcurrent`: max concurrent sub-agent runs (default 1)
@@ -1447,7 +1487,7 @@ Example (disable browser/canvas everywhere):
 }
 ```
 
-`tools.elevated` controls elevated (host) bash access:
+`tools.elevated` controls elevated (host) exec access:
 - `enabled`: allow elevated mode (default true)
 - `allowFrom`: per-provider allowlists (empty = disabled)
   - `whatsapp`: E.164 numbers
@@ -1491,8 +1531,8 @@ Per-agent override (further restrict):
 Notes:
 - `tools.elevated` is the global baseline. `agents.list[].tools.elevated` can only further restrict (both must allow).
 - `/elevated on|off` stores state per session key; inline directives apply to a single message.
-- Elevated `bash` runs on the host and bypasses sandboxing.
-- Tool policy still applies; if `bash` is denied, elevated cannot be used.
+- Elevated `exec` runs on the host and bypasses sandboxing.
+- Tool policy still applies; if `exec` is denied, elevated cannot be used.
 
 `agents.defaults.maxConcurrent` sets the maximum number of embedded agent runs that can
 execute in parallel across sessions. Each session is still serialized (one run
@@ -1510,10 +1550,10 @@ Defaults (if enabled):
 - Debian bookworm-slim based image
 - agent workspace access: `workspaceAccess: "none"` (default)
   - `"none"`: use a per-scope sandbox workspace under `~/.clawdbot/sandboxes`
-  - `"ro"`: keep the sandbox workspace at `/workspace`, and mount the agent workspace read-only at `/agent` (disables `write`/`edit`)
+- `"ro"`: keep the sandbox workspace at `/workspace`, and mount the agent workspace read-only at `/agent` (disables `write`/`edit`/`apply_patch`)
   - `"rw"`: mount the agent workspace read/write at `/workspace`
 - auto-prune: idle > 24h OR age > 7d
-- tool policy: allow only `bash`, `process`, `read`, `write`, `edit`, `sessions_list`, `sessions_history`, `sessions_send`, `sessions_spawn`, `session_status` (deny wins)
+- tool policy: allow only `exec`, `process`, `read`, `write`, `edit`, `apply_patch`, `sessions_list`, `sessions_history`, `sessions_send`, `sessions_spawn`, `session_status` (deny wins)
   - configure via `tools.sandbox.tools`, override per-agent via `agents.list[].tools.sandbox.tools`
 - optional sandboxed browser (Chromium + CDP, noVNC observer)
 - hardening knobs: `network`, `user`, `pidsLimit`, `memory`, `cpus`, `ulimits`, `seccompProfile`, `apparmorProfile`
@@ -1584,7 +1624,7 @@ Legacy: `perSession` is still supported (`true` → `scope: "session"`,
   tools: {
     sandbox: {
       tools: {
-        allow: ["bash", "process", "read", "write", "edit", "sessions_list", "sessions_history", "sessions_send", "sessions_spawn", "session_status"],
+        allow: ["exec", "process", "read", "write", "edit", "apply_patch", "sessions_list", "sessions_history", "sessions_send", "sessions_spawn", "session_status"],
         deny: ["browser", "canvas", "nodes", "cron", "discord", "gateway"]
       }
     }
@@ -1724,9 +1764,51 @@ Notes:
   override (see the custom providers section above).
 - Use a fake placeholder in docs/configs; never commit real API keys.
 
+### Moonshot AI (Kimi)
+
+Use Moonshot's OpenAI-compatible endpoint:
+
+```json5
+{
+  env: { MOONSHOT_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      model: { primary: "moonshot/kimi-k2-0905-preview" },
+      models: { "moonshot/kimi-k2-0905-preview": { alias: "Kimi K2" } }
+    }
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      moonshot: {
+        baseUrl: "https://api.moonshot.ai/v1",
+        apiKey: "${MOONSHOT_API_KEY}",
+        api: "openai-completions",
+        models: [
+          {
+            id: "kimi-k2-0905-preview",
+            name: "Kimi K2 0905 Preview",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+Notes:
+- Set `MOONSHOT_API_KEY` in the environment or use `clawdbot onboard --auth-choice moonshot-api-key`.
+- Model ref: `moonshot/kimi-k2-0905-preview`.
+- Use `https://api.moonshot.cn/v1` if you need the China endpoint.
+
 ### Local models (LM Studio) — recommended setup
 
-Best current local setup (what we’re running): **MiniMax M2.1** on a beefy Mac Studio
+Best current local setup (what we’re running): **MiniMax M2.1** on a powerful local machine
 via **LM Studio** using the **Responses API**.
 
 ```json5
@@ -1769,9 +1851,9 @@ Notes:
 - Responses API enables clean reasoning/output separation; WhatsApp sees only final text.
 - Adjust `contextWindow`/`maxTokens` if your LM Studio context length differs.
 
-### MiniMax API (platform.minimax.io)
+### MiniMax M2.1
 
-Use MiniMax's Anthropic-compatible API directly without LM Studio:
+Use MiniMax M2.1 directly without LM Studio:
 
 ```json5
 {
@@ -1795,25 +1877,7 @@ Use MiniMax's Anthropic-compatible API directly without LM Studio:
             name: "MiniMax M2.1",
             reasoning: false,
             input: ["text"],
-            // Pricing: MiniMax doesn't publish public rates. Override in models.json for accurate costs.
-            cost: { input: 15, output: 60, cacheRead: 2, cacheWrite: 10 },
-            contextWindow: 200000,
-            maxTokens: 8192
-          },
-          {
-            id: "MiniMax-M2.1-lightning",
-            name: "MiniMax M2.1 Lightning",
-            reasoning: false,
-            input: ["text"],
-            cost: { input: 15, output: 60, cacheRead: 2, cacheWrite: 10 },
-            contextWindow: 200000,
-            maxTokens: 8192
-          },
-          {
-            id: "MiniMax-M2",
-            name: "MiniMax M2",
-            reasoning: true,
-            input: ["text"],
+            // Pricing: update in models.json if you need exact cost tracking.
             cost: { input: 15, output: 60, cacheRead: 2, cacheWrite: 10 },
             contextWindow: 200000,
             maxTokens: 8192
@@ -1826,9 +1890,49 @@ Use MiniMax's Anthropic-compatible API directly without LM Studio:
 ```
 
 Notes:
-- Set `MINIMAX_API_KEY` environment variable or use `clawdbot onboard --auth-choice minimax-api`
-- Available models: `MiniMax-M2.1` (default), `MiniMax-M2.1-lightning` (~100 tps), `MiniMax-M2` (reasoning)
-- Pricing is a placeholder; MiniMax doesn't publish public rates. Override in `models.json` for accurate cost tracking.
+- Set `MINIMAX_API_KEY` environment variable or use `clawdbot onboard --auth-choice minimax-api`.
+- Available model: `MiniMax-M2.1` (default).
+- Update pricing in `models.json` if you need exact cost tracking.
+
+### Cerebras (GLM 4.6 / 4.7)
+
+Use Cerebras via their OpenAI-compatible endpoint:
+
+```json5
+{
+  env: { CEREBRAS_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      model: {
+        primary: "cerebras/zai-glm-4.7",
+        fallbacks: ["cerebras/zai-glm-4.6"]
+      },
+      models: {
+        "cerebras/zai-glm-4.7": { alias: "GLM 4.7 (Cerebras)" },
+        "cerebras/zai-glm-4.6": { alias: "GLM 4.6 (Cerebras)" }
+      }
+    }
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      cerebras: {
+        baseUrl: "https://api.cerebras.ai/v1",
+        apiKey: "${CEREBRAS_API_KEY}",
+        api: "openai-completions",
+        models: [
+          { id: "zai-glm-4.7", name: "GLM 4.7 (Cerebras)" },
+          { id: "zai-glm-4.6", name: "GLM 4.6 (Cerebras)" }
+        ]
+      }
+    }
+  }
+}
+```
+
+Notes:
+- Use `cerebras/zai-glm-4.7` for Cerebras; use `zai/glm-4.7` for Z.AI direct.
+- Set `CEREBRAS_API_KEY` in the environment or config.
 
 Notes:
 - Supported APIs: `openai-completions`, `openai-responses`, `anthropic-messages`,

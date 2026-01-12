@@ -905,6 +905,19 @@ const ToolsSchema = z
         allowFrom: ElevatedAllowFromSchema,
       })
       .optional(),
+    exec: z
+      .object({
+        backgroundMs: z.number().int().positive().optional(),
+        timeoutSec: z.number().int().positive().optional(),
+        cleanupMs: z.number().int().positive().optional(),
+        applyPatch: z
+          .object({
+            enabled: z.boolean().optional(),
+            allowModels: z.array(z.string()).optional(),
+          })
+          .optional(),
+      })
+      .optional(),
     bash: z
       .object({
         backgroundMs: z.number().int().positive().optional(),
@@ -1113,6 +1126,19 @@ const AgentDefaultsSchema = z
           .object({
             enabled: z.boolean().optional(),
             placeholder: z.string().optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+    compaction: z
+      .object({
+        reserveTokensFloor: z.number().int().nonnegative().optional(),
+        memoryFlush: z
+          .object({
+            enabled: z.boolean().optional(),
+            softThresholdTokens: z.number().int().nonnegative().optional(),
+            prompt: z.string().optional(),
+            systemPrompt: z.string().optional(),
           })
           .optional(),
       })
