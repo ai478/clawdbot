@@ -179,6 +179,10 @@ docker build \
   -f "$ROOT_DIR/Dockerfile" \
   "$ROOT_DIR"
 
+echo "==> Building sandbox images"
+./scripts/sandbox-setup.sh
+./scripts/sandbox-browser-setup.sh
+
 echo ""
 echo "==> Onboarding (interactive)"
 echo "When prompted:"
