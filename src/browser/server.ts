@@ -41,7 +41,7 @@ export async function startBrowserControlServerFromConfig(): Promise<BrowserServ
 
   const port = resolved.controlPort;
   const server = await new Promise<Server>((resolve, reject) => {
-    const s = app.listen(port, "127.0.0.1", () => resolve(s));
+    const s = app.listen(port, resolved.controlHost, () => resolve(s));
     s.once("error", reject);
   }).catch((err) => {
     logServer.error(
@@ -59,7 +59,7 @@ export async function startBrowserControlServerFromConfig(): Promise<BrowserServ
     profiles: new Map(),
   };
 
-  logServer.info(`Browser control listening on http://127.0.0.1:${port}/`);
+  logServer.info(`Browser control listening on http://${resolved.controlHost}:${port}/`);
   return state;
 }
 

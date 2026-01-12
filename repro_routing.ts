@@ -9,7 +9,7 @@ const mockConfig: ClawdbotConfig = {
       { id: "team" }
     ]
   },
-  telegram: { token: "fake" },
+  telegram: { botToken: "fake" },
   bindings: [
     {
       "agentId": "admin",

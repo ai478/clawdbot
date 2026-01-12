@@ -15,6 +15,7 @@ services:
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY}
       BRAVE_API_KEY: ${BRAVE_API_KEY}
       GITHUB_TOKEN: ${GITHUB_TOKEN}
+      CLAWDBOT_BROWSER_CONTROL_URL: http://0.0.0.0:18791
     volumes:
       - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
       - /home/clawdis/clawd:/home/node/clawd
@@ -23,6 +24,7 @@ services:
     ports:
       - "${CLAWDBOT_GATEWAY_PORT:-18789}:18789"
       - "${CLAWDBOT_BRIDGE_PORT:-18790}:18790"
+      - "18791:18791"
     init: true
     restart: unless-stopped
     command:

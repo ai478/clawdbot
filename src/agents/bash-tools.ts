@@ -386,7 +386,6 @@ export function createExecTool(
       child.stderr.on("data", (data) => {
         const str = sanitizeBinaryOutput(redact(data.toString()));
         for (const chunk of chunkString(str)) {
-        for (const chunk of chunkString(str)) {
           appendOutput(session, "stderr", chunk);
           emitUpdate();
         }

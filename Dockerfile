@@ -82,7 +82,9 @@ COPY --chown=node:node ui/package.json ./ui/package.json
 COPY --chown=node:node patches ./patches
 COPY --chown=node:node scripts ./scripts
 
-RUN pnpm install --frozen-lockfile
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+RUN pnpm fetch
+RUN pnpm install --frozen-lockfile --offline
 
 COPY --chown=node:node . .
 RUN pnpm build
