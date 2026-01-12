@@ -1465,9 +1465,27 @@ export async function startGatewayServer(
       }
     }, HANDSHAKE_TIMEOUT_MS);
 
+    // [Authentication Fix] Extract token from URL query params
+    const urlToken = new URL(upgradeReq.url ?? "", `http://${requestHost || "localhost"}`).searchParams.get("token");
+
     socket.on("message", async (data) => {
       if (closed) return;
-      const text = rawDataToString(data);
+      let text = rawDataToString(data);
+
+      // [Authentication Fix] Inject token into handshake if missing
+      if (!client && urlToken) {
+          try {
+              const parsed = JSON.parse(text);
+              if (parsed?.type === "req" && parsed?.method === "connect" && parsed?.params) {
+                  if (!parsed.params.auth) parsed.params.auth = {};
+                  if (!parsed.params.auth.token) {
+                      parsed.params.auth.token = urlToken;
+                      text = JSON.stringify(parsed);
+                  }
+              }
+          } catch { /* ignore parse error here, strict check happens later */ }
+      }
+
       try {
         const parsed = JSON.parse(text);
         const frameType =
@@ -1818,6 +1836,12 @@ export async function startGatewayServer(
   });
   log.info(`listening on ws://${bindHost}:${port} (PID ${process.pid})`);
   log.info(`log file: ${getResolvedLoggerSettings().file}`);
+  
+  if (resolvedAuth.mode === "token" && resolvedAuth.token) {
+     log.info(`Gateway Token: ${resolvedAuth.token}`);
+     log.info(`Web Control URL: http://${bindHost}:${port}/?token=${resolvedAuth.token}`);
+  }
+
   if (isNixMode) {
     log.info("gateway: running in Nix mode (config managed externally)");
   }
