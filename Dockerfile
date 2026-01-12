@@ -9,7 +9,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    gnupg && \
+    gnupg \
+    jq && \
     install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     chmod a+r /etc/apt/keyrings/docker.gpg && \
@@ -28,9 +29,18 @@ ENV GOPATH="/home/node/go"
 ENV PATH="$PNPM_HOME:$GOPATH/bin:$PATH"
 
 # Map 'node' user to UID 1001 to match host user 'clawdis'
-# We also ensure the home directory and cache areas are fully owned by node
+# Also handle Docker group permissions if DOCKER_GID is provided
+ARG DOCKER_GID=""
 RUN usermod -u 1001 node && \
     groupmod -g 1001 node && \
+    if [ -n "$DOCKER_GID" ]; then \
+      if getent group "$DOCKER_GID"; then \
+        usermod -aG $(getent group "$DOCKER_GID" | cut -d: -f1) node; \
+      else \
+        groupadd -g "$DOCKER_GID" docker_host && \
+        usermod -aG docker_host node; \
+      fi; \
+    fi && \
     rm -rf /home/node/.local /home/node/go /home/node/.cache && \
     mkdir -p /home/node/.local/share/pnpm/store /home/node/go /home/node/.cache /app && \
     chown -R node:node /home/node /app

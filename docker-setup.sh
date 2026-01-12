@@ -166,8 +166,15 @@ upsert_env "$ENV_FILE" \
   CLAWDBOT_DOCKER_APT_PACKAGES
 
 echo "==> Building Docker image: $IMAGE_NAME"
+DOCKER_GID=""
+if [ -S /var/run/docker.sock ]; then
+  DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+  echo "Detected host Docker GID: $DOCKER_GID"
+fi
+
 docker build \
   --build-arg "CLAWDBOT_DOCKER_APT_PACKAGES=${CLAWDBOT_DOCKER_APT_PACKAGES}" \
+  --build-arg "DOCKER_GID=${DOCKER_GID}" \
   -t "$IMAGE_NAME" \
   -f "$ROOT_DIR/Dockerfile" \
   "$ROOT_DIR"
