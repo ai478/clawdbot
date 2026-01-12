@@ -1,5 +1,9 @@
 services:
   clawdbot-gateway:
+    build:
+      context: .
+      args:
+        DOCKER_GID: ${DOCKER_GID:-988}
     image: ${CLAWDBOT_IMAGE:-clawdbot:local}
     environment:
       HOME: /home/node
