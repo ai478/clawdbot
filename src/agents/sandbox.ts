@@ -277,6 +277,10 @@ export function resolveSandboxDockerConfig(params: {
     ? { ...(globalDocker?.env ?? { LANG: "C.UTF-8" }), ...agentDocker.env }
     : (globalDocker?.env ?? { LANG: "C.UTF-8" });
 
+  if (process.env.CLAWDBOT_GATEWAY_TOKEN) {
+    env.CLAWDBOT_GATEWAY_TOKEN = process.env.CLAWDBOT_GATEWAY_TOKEN;
+  }
+
   const ulimits = agentDocker?.ulimits
     ? { ...globalDocker?.ulimits, ...agentDocker.ulimits }
     : globalDocker?.ulimits;
@@ -927,6 +931,11 @@ export function buildSandboxCreateArgs(params: {
   }
   if (params.cfg.network) args.push("--network", params.cfg.network);
   if (params.cfg.user) args.push("--user", params.cfg.user);
+  for (const [key, value] of Object.entries(params.cfg.env ?? {})) {
+    if (key && value !== undefined) {
+      args.push("-e", `${key}=${value}`);
+    }
+  }
   for (const cap of params.cfg.capDrop) {
     args.push("--cap-drop", cap);
   }
