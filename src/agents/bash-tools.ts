@@ -261,10 +261,6 @@ export function createExecTool(
 
       const { shell, args: shellArgs } = getShellConfig();
       const baseEnv = coerceEnv(process.env);
-      // Scrub sensitive keys from the base environment
-      for (const key of SENSITIVE_KEYS) {
-        delete baseEnv[key];
-      }
       const mergedEnv = params.env ? { ...baseEnv, ...params.env } : baseEnv;
       const env = sandbox
         ? buildSandboxEnv({
@@ -368,8 +364,19 @@ export function createExecTool(
         });
       };
 
+      const secretValues = SENSITIVE_KEYS.map((key) => process.env[key]).filter(
+        (val): val is string => !!val && val.length > 5,
+      );
+      const redact = (text: string) => {
+        let result = text;
+        for (const secret of secretValues) {
+          result = result.split(secret).join("[REDACTED]");
+        }
+        return result;
+      };
+
       child.stdout.on("data", (data) => {
-        const str = sanitizeBinaryOutput(data.toString());
+        const str = sanitizeBinaryOutput(redact(data.toString()));
         for (const chunk of chunkString(str)) {
           appendOutput(session, "stdout", chunk);
           emitUpdate();
@@ -377,7 +384,8 @@ export function createExecTool(
       });
 
       child.stderr.on("data", (data) => {
-        const str = sanitizeBinaryOutput(data.toString());
+        const str = sanitizeBinaryOutput(redact(data.toString()));
+        for (const chunk of chunkString(str)) {
         for (const chunk of chunkString(str)) {
           appendOutput(session, "stderr", chunk);
           emitUpdate();
