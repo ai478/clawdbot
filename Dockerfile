@@ -84,7 +84,7 @@ COPY --chown=node:node scripts ./scripts
 
 ENV NODE_OPTIONS="--max-old-space-size=1024"
 RUN pnpm config set network-concurrency 1
-RUN pnpm install --frozen-lockfile --ignore-scripts --no-optional
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY --chown=node:node . .
 RUN pnpm build
