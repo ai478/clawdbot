@@ -83,6 +83,7 @@ COPY --chown=node:node patches ./patches
 COPY --chown=node:node scripts ./scripts
 
 ENV NODE_OPTIONS="--max-old-space-size=4096"
+RUN pnpm config set network-concurrency 1
 RUN pnpm fetch
 RUN pnpm install --frozen-lockfile --offline
 
