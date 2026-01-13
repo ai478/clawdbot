@@ -37,6 +37,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
+# Install glab (GitLab CLI)
+RUN curl -fsSL https://gitlab.com/gitlab-org/cli/-/releases/v1.80.4/downloads/glab_1.80.4_linux_amd64.deb -o /tmp/glab.deb \
+    && dpkg -i /tmp/glab.deb \
+    && rm /tmp/glab.deb
+
 RUN corepack enable
 
 # Configure pnpm and Go for global installs (required for skills)
@@ -98,8 +103,10 @@ RUN pnpm ui:install
 RUN pnpm ui:build
 
 # Create agent-browser alias
+USER root
 RUN echo '#!/bin/bash\nnode /app/dist/entry.js browser "$@"' > /usr/local/bin/agent-browser \
     && chmod +x /usr/local/bin/agent-browser
+USER node
 
 ENV NODE_ENV=production
 
