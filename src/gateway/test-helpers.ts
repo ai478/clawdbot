@@ -8,10 +8,11 @@ import { resolveMainSessionKeyFromConfig } from "../config/sessions.js";
 import { resetAgentRunContextForTest } from "../infra/agent-events.js";
 import { drainSystemEvents, peekSystemEvents } from "../infra/system-events.js";
 import { rawDataToString } from "../infra/ws.js";
+import { resetLogger, setLoggerOverride } from "../logging.js";
 import {
   GATEWAY_CLIENT_MODES,
   GATEWAY_CLIENT_NAMES,
-} from "../utils/message-provider.js";
+} from "../utils/message-channel.js";
 import { PROTOCOL_VERSION } from "./protocol/index.js";
 import type { GatewayServerOptions } from "./server.js";
 
@@ -260,8 +261,10 @@ vi.mock("../config/config.js", async () => {
         return { defaults };
       })(),
       bindings: testState.bindingsConfig,
-      whatsapp: {
-        allowFrom: testState.allowFrom,
+      channels: {
+        whatsapp: {
+          allowFrom: testState.allowFrom,
+        },
       },
       session: {
         mainKey: "main",
@@ -341,13 +344,14 @@ vi.mock("../commands/agent.js", () => ({
   agentCommand,
 }));
 
-process.env.CLAWDBOT_SKIP_PROVIDERS = "1";
+process.env.CLAWDBOT_SKIP_CHANNELS = "1";
 
 let previousHome: string | undefined;
 let tempHome: string | undefined;
 
 export function installGatewayTestHooks() {
   beforeEach(async () => {
+    setLoggerOverride({ level: "silent", consoleLevel: "silent" });
     previousHome = process.env.HOME;
     tempHome = await fs.mkdtemp(
       path.join(os.tmpdir(), "clawdbot-gateway-home-"),
@@ -388,6 +392,7 @@ export function installGatewayTestHooks() {
   }, 60_000);
 
   afterEach(async () => {
+    resetLogger();
     process.env.HOME = previousHome;
     if (tempHome) {
       await fs.rm(tempHome, {

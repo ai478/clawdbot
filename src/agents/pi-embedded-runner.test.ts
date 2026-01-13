@@ -7,6 +7,7 @@ import { Type } from "@sinclair/typebox";
 import { describe, expect, it, vi } from "vitest";
 import type { ClawdbotConfig } from "../config/config.js";
 import { resolveSessionAgentIds } from "./agent-scope.js";
+import { ensureClawdbotModelsJson } from "./models-config.js";
 import {
   applyGoogleTurnOrderingFix,
   buildEmbeddedSandboxInfo,
@@ -84,6 +85,9 @@ const makeOpenAiConfig = (modelIds: string[]) =>
       },
     },
   }) satisfies ClawdbotConfig;
+
+const ensureModels = (cfg: ClawdbotConfig, agentDir: string) =>
+  ensureClawdbotModelsJson(cfg, agentDir);
 
 const textFromContent = (content: unknown) => {
   if (typeof content === "string") return content;
@@ -474,17 +478,23 @@ describe("getDmHistoryLimitFromSessionKey", () => {
   });
 
   it("returns dmHistoryLimit for telegram provider", () => {
-    const config = { telegram: { dmHistoryLimit: 15 } } as ClawdbotConfig;
+    const config = {
+      channels: { telegram: { dmHistoryLimit: 15 } },
+    } as ClawdbotConfig;
     expect(getDmHistoryLimitFromSessionKey("telegram:dm:123", config)).toBe(15);
   });
 
   it("returns dmHistoryLimit for whatsapp provider", () => {
-    const config = { whatsapp: { dmHistoryLimit: 20 } } as ClawdbotConfig;
+    const config = {
+      channels: { whatsapp: { dmHistoryLimit: 20 } },
+    } as ClawdbotConfig;
     expect(getDmHistoryLimitFromSessionKey("whatsapp:dm:123", config)).toBe(20);
   });
 
   it("returns dmHistoryLimit for agent-prefixed session keys", () => {
-    const config = { telegram: { dmHistoryLimit: 10 } } as ClawdbotConfig;
+    const config = {
+      channels: { telegram: { dmHistoryLimit: 10 } },
+    } as ClawdbotConfig;
     expect(
       getDmHistoryLimitFromSessionKey("agent:main:telegram:dm:123", config),
     ).toBe(10);
@@ -492,8 +502,10 @@ describe("getDmHistoryLimitFromSessionKey", () => {
 
   it("returns undefined for non-dm session kinds", () => {
     const config = {
-      slack: { dmHistoryLimit: 10 },
-      telegram: { dmHistoryLimit: 15 },
+      channels: {
+        telegram: { dmHistoryLimit: 15 },
+        slack: { dmHistoryLimit: 10 },
+      },
     } as ClawdbotConfig;
     expect(
       getDmHistoryLimitFromSessionKey("agent:beta:slack:channel:C1", config),
@@ -504,14 +516,16 @@ describe("getDmHistoryLimitFromSessionKey", () => {
   });
 
   it("returns undefined for unknown provider", () => {
-    const config = { telegram: { dmHistoryLimit: 15 } } as ClawdbotConfig;
+    const config = {
+      channels: { telegram: { dmHistoryLimit: 15 } },
+    } as ClawdbotConfig;
     expect(
       getDmHistoryLimitFromSessionKey("unknown:dm:123", config),
     ).toBeUndefined();
   });
 
   it("returns undefined when provider config has no dmHistoryLimit", () => {
-    const config = { telegram: {} } as ClawdbotConfig;
+    const config = { channels: { telegram: {} } } as ClawdbotConfig;
     expect(
       getDmHistoryLimitFromSessionKey("telegram:dm:123", config),
     ).toBeUndefined();
@@ -529,7 +543,9 @@ describe("getDmHistoryLimitFromSessionKey", () => {
     ] as const;
 
     for (const provider of providers) {
-      const config = { [provider]: { dmHistoryLimit: 5 } } as ClawdbotConfig;
+      const config = {
+        channels: { [provider]: { dmHistoryLimit: 5 } },
+      } as ClawdbotConfig;
       expect(
         getDmHistoryLimitFromSessionKey(`${provider}:dm:123`, config),
       ).toBe(5);
@@ -550,9 +566,11 @@ describe("getDmHistoryLimitFromSessionKey", () => {
     for (const provider of providers) {
       // Test per-DM override takes precedence
       const configWithOverride = {
-        [provider]: {
-          dmHistoryLimit: 20,
-          dms: { user123: { historyLimit: 7 } },
+        channels: {
+          [provider]: {
+            dmHistoryLimit: 20,
+            dms: { user123: { historyLimit: 7 } },
+          },
         },
       } as ClawdbotConfig;
       expect(
@@ -582,9 +600,11 @@ describe("getDmHistoryLimitFromSessionKey", () => {
 
   it("returns per-DM override when set", () => {
     const config = {
-      telegram: {
-        dmHistoryLimit: 15,
-        dms: { "123": { historyLimit: 5 } },
+      channels: {
+        telegram: {
+          dmHistoryLimit: 15,
+          dms: { "123": { historyLimit: 5 } },
+        },
       },
     } as ClawdbotConfig;
     expect(getDmHistoryLimitFromSessionKey("telegram:dm:123", config)).toBe(5);
@@ -592,9 +612,11 @@ describe("getDmHistoryLimitFromSessionKey", () => {
 
   it("falls back to provider default when per-DM not set", () => {
     const config = {
-      telegram: {
-        dmHistoryLimit: 15,
-        dms: { "456": { historyLimit: 5 } },
+      channels: {
+        telegram: {
+          dmHistoryLimit: 15,
+          dms: { "456": { historyLimit: 5 } },
+        },
       },
     } as ClawdbotConfig;
     expect(getDmHistoryLimitFromSessionKey("telegram:dm:123", config)).toBe(15);
@@ -602,9 +624,11 @@ describe("getDmHistoryLimitFromSessionKey", () => {
 
   it("returns per-DM override for agent-prefixed keys", () => {
     const config = {
-      telegram: {
-        dmHistoryLimit: 20,
-        dms: { "789": { historyLimit: 3 } },
+      channels: {
+        telegram: {
+          dmHistoryLimit: 20,
+          dms: { "789": { historyLimit: 3 } },
+        },
       },
     } as ClawdbotConfig;
     expect(
@@ -614,9 +638,11 @@ describe("getDmHistoryLimitFromSessionKey", () => {
 
   it("handles userId with colons (e.g., email)", () => {
     const config = {
-      msteams: {
-        dmHistoryLimit: 10,
-        dms: { "user@example.com": { historyLimit: 7 } },
+      channels: {
+        msteams: {
+          dmHistoryLimit: 10,
+          dms: { "user@example.com": { historyLimit: 7 } },
+        },
       },
     } as ClawdbotConfig;
     expect(
@@ -626,8 +652,10 @@ describe("getDmHistoryLimitFromSessionKey", () => {
 
   it("returns undefined when per-DM historyLimit is not set", () => {
     const config = {
-      telegram: {
-        dms: { "123": {} },
+      channels: {
+        telegram: {
+          dms: { "123": {} },
+        },
       },
     } as ClawdbotConfig;
     expect(
@@ -637,9 +665,11 @@ describe("getDmHistoryLimitFromSessionKey", () => {
 
   it("returns 0 when per-DM historyLimit is explicitly 0 (unlimited)", () => {
     const config = {
-      telegram: {
-        dmHistoryLimit: 15,
-        dms: { "123": { historyLimit: 0 } },
+      channels: {
+        telegram: {
+          dmHistoryLimit: 15,
+          dms: { "123": { historyLimit: 0 } },
+        },
       },
     } as ClawdbotConfig;
     expect(getDmHistoryLimitFromSessionKey("telegram:dm:123", config)).toBe(0);
@@ -699,44 +729,49 @@ describe("runEmbeddedPiAgent", () => {
     ).resolves.toBeTruthy();
   });
 
-  it("persists the first user message before assistant output", async () => {
-    const agentDir = await fs.mkdtemp(
-      path.join(os.tmpdir(), "clawdbot-agent-"),
-    );
-    const workspaceDir = await fs.mkdtemp(
-      path.join(os.tmpdir(), "clawdbot-workspace-"),
-    );
-    const sessionFile = path.join(workspaceDir, "session.jsonl");
+  it(
+    "persists the first user message before assistant output",
+    { timeout: 15_000 },
+    async () => {
+      const agentDir = await fs.mkdtemp(
+        path.join(os.tmpdir(), "clawdbot-agent-"),
+      );
+      const workspaceDir = await fs.mkdtemp(
+        path.join(os.tmpdir(), "clawdbot-workspace-"),
+      );
+      const sessionFile = path.join(workspaceDir, "session.jsonl");
 
-    const cfg = makeOpenAiConfig(["mock-1"]);
+      const cfg = makeOpenAiConfig(["mock-1"]);
+      await ensureModels(cfg, agentDir);
 
-    await runEmbeddedPiAgent({
-      sessionId: "session:test",
-      sessionKey: "agent:main:main",
-      sessionFile,
-      workspaceDir,
-      config: cfg,
-      prompt: "hello",
-      provider: "openai",
-      model: "mock-1",
-      timeoutMs: 5_000,
-      agentDir,
-    });
+      await runEmbeddedPiAgent({
+        sessionId: "session:test",
+        sessionKey: "agent:main:main",
+        sessionFile,
+        workspaceDir,
+        config: cfg,
+        prompt: "hello",
+        provider: "openai",
+        model: "mock-1",
+        timeoutMs: 5_000,
+        agentDir,
+      });
 
-    const messages = await readSessionMessages(sessionFile);
-    const firstUserIndex = messages.findIndex(
-      (message) =>
-        message?.role === "user" &&
-        textFromContent(message.content) === "hello",
-    );
-    const firstAssistantIndex = messages.findIndex(
-      (message) => message?.role === "assistant",
-    );
-    expect(firstUserIndex).toBeGreaterThanOrEqual(0);
-    if (firstAssistantIndex !== -1) {
-      expect(firstUserIndex).toBeLessThan(firstAssistantIndex);
-    }
-  });
+      const messages = await readSessionMessages(sessionFile);
+      const firstUserIndex = messages.findIndex(
+        (message) =>
+          message?.role === "user" &&
+          textFromContent(message.content) === "hello",
+      );
+      const firstAssistantIndex = messages.findIndex(
+        (message) => message?.role === "assistant",
+      );
+      expect(firstUserIndex).toBeGreaterThanOrEqual(0);
+      if (firstAssistantIndex !== -1) {
+        expect(firstUserIndex).toBeLessThan(firstAssistantIndex);
+      }
+    },
+  );
 
   it("persists the user message when prompt fails before assistant output", async () => {
     const agentDir = await fs.mkdtemp(
@@ -748,6 +783,7 @@ describe("runEmbeddedPiAgent", () => {
     const sessionFile = path.join(workspaceDir, "session.jsonl");
 
     const cfg = makeOpenAiConfig(["mock-error"]);
+    await ensureModels(cfg, agentDir);
 
     const result = await runEmbeddedPiAgent({
       sessionId: "session:test",
@@ -810,6 +846,7 @@ describe("runEmbeddedPiAgent", () => {
     });
 
     const cfg = makeOpenAiConfig(["mock-1"]);
+    await ensureModels(cfg, agentDir);
 
     await runEmbeddedPiAgent({
       sessionId: "session:test",
@@ -859,6 +896,7 @@ describe("runEmbeddedPiAgent", () => {
     const sessionFile = path.join(workspaceDir, "session.jsonl");
 
     const cfg = makeOpenAiConfig(["mock-1"]);
+    await ensureModels(cfg, agentDir);
 
     await runEmbeddedPiAgent({
       sessionId: "session:test",
