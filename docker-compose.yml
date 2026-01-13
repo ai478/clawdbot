@@ -5,6 +5,7 @@ services:
       args:
         DOCKER_GID: ${DOCKER_GID:-988}
     image: ${CLAWDBOT_IMAGE:-clawdbot:local}
+    user: root
     environment:
       HOME: /home/node
       TERM: xterm-256color

@@ -30,6 +30,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
+# Install browser dependencies (for agent-browser / puppeteer)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
+    libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable
 
 # Configure pnpm and Go for global installs (required for skills)
@@ -89,6 +96,10 @@ COPY --chown=node:node . .
 RUN pnpm build
 RUN pnpm ui:install
 RUN pnpm ui:build
+
+# Create agent-browser alias
+RUN echo '#!/bin/bash\nnode /app/dist/entry.js browser "$@"' > /usr/local/bin/agent-browser \
+    && chmod +x /usr/local/bin/agent-browser
 
 ENV NODE_ENV=production
 
