@@ -1,0 +1,195 @@
+# Sandbox Configuration Plan
+
+## Summary of Issues to Fix
+
+Based on analysis of the Clawdbot sandbox configuration, there are three main issues to address:
+
+1. **Q1: Sandbox Command Access** - Allow sandbox to execute all commands on the host filesystem (read-only) but only write to a shared directory
+2. **Q2: Codex CLI Access** - Make the OpenAI Codex CLI available inside the sandbox container
+3. **Q3: Network Access** - Enable network access for the sandbox container
+
+---
+
+## Q1: Sandbox Command Access (read-only everywhere, write only in shared)
+
+### Current State
+- `Dockerfile.sandbox` is minimal (only has: bash, curl, git, jq, python3, ripgrep, pnpm)
+- Default sandbox network is `"none"` (no network)
+- Volume mounts are configured via `clawdbot.json` in `agents.list[].sandbox.docker.binds`
+
+### Solution: Volume Mounts with :ro and :rw
+
+**Configuration in `clawdbot.json`:**
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "team",
+        "sandbox": {
+          "mode": "all",
+          "workspaceAccess": "ro",
+          "docker": {
+            "binds": [
+              "/home/clawdis/clawd:/home/node/clawd:ro",
+              "/home/clawdis/clawd-team:/home/node/clawd-team:ro",
+              "/home/clawdis/shared:/home/node/shared:rw"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+### Files to Modify
+1. `clawdbot.json.new` - Update agent sandbox config with proper binds
+2. Potentially `Dockerfile.sandbox` - Add more tools if needed
+
+---
+
+## Q2: Codex CLI Access in Sandbox
+
+### Current State
+- Main `Dockerfile` installs Claude Code CLI: `RUN pnpm add -g @anthropic-ai/claude-code`
+- `Dockerfile.sandbox` does NOT have Codex CLI installed
+- Sandbox cannot see Codex because it's not inside the sandbox container
+
+### Solution Options
+
+**Option A: Install Codex in Dockerfile.sandbox (Recommended)**
+```dockerfile
+# Add to Dockerfile.sandbox
+RUN corepack enable && \
+    corepack prepare pnpm@latest --activate && \
+    pnpm add -g @openai/codex
+```
+
+**Option B: Mount from host**
+```yaml
+# In clawdbot.json binds
+volumes:
+  - /home/clawdis/.local/share/pnpm/global:/usr/local/bin/codex:ro
+```
+
+### Files to Modify
+1. `Dockerfile.sandbox` - Add Codex CLI installation
+2. `clawdbot.json.new` - Add volume mount if Option B is chosen
+
+---
+
+## Q3: Network Access for Sandbox
+
+### Current State
+- Default network mode is `"none"` (line 86 in `src/agents/sandbox/config.ts`)
+- `SandboxDockerConfig` type supports `network` field
+
+### Solution: Enable network mode in config
+
+**Configuration in `clawdbot.json`:**
+```json
+{
+  "agents": {
+    "defaults": {
+      "sandbox": {
+        "docker": {
+          "network": "bridge"
+        }
+      }
+    }
+  }
+}
+```
+
+### Network Options
+| Mode | Description |
+|------|-------------|
+| `none` | No network (default, most secure) |
+| `bridge` | Default Docker bridge with NAT (internet access) |
+| `host` | Full host network access (less secure) |
+
+### Persistence
+- **NO** - Network config is applied at container creation time
+- When container is destroyed and recreated, config must be reapplied
+- The config persists in `clawdbot.json`
+
+### Files to Modify
+1. `src/agents/sandbox/config.ts` - Already supports network config
+2. `clawdbot.json.new` - Add network setting
+
+---
+
+## Implementation Steps
+
+### Step 1: Update Dockerfile.sandbox
+- Add Codex CLI installation
+- Consider adding more common CLI tools (rsync, find, etc.)
+
+### Step 2: Update clawdbot.json.new
+- Add volume mounts with :ro/:rw permissions
+- Add network configuration
+- Add proper binds for all required directories
+
+### Step 3: Rebuild sandbox image
+```bash
+docker build -f Dockerfile.sandbox -t clawdbot-sandbox:bookworm-slim .
+```
+
+### Step 4: Recreate sandbox containers
+```bash
+clawdbot sandbox recreate --all
+```
+
+---
+
+## Diagram: Sandbox Container Architecture
+
+```mermaid
+graph TB
+    subgraph Host System
+        H["/home/clawdis/"]
+        H1["/clawd - :ro"]
+        H2["/clawd-team - :ro"]
+        H3["/shared - :rw"]
+        H4["/.local/bin/codex"]
+    end
+    
+    subgraph Docker Network
+        N["Network Mode<br/>none | bridge | host"]
+    end
+    
+    subgraph Sandbox Container
+        S["clawdbot-sandbox:bookworm-slim"]
+        S1["/home/node/clawd - :ro"]
+        S2["/home/node/clawd-team - :ro"]
+        S3["/home/node/shared - :rw"]
+        S4["/usr/local/bin/codex"]
+    end
+    
+    H1 --> S1
+    H2 --> S2
+    H3 --> S3
+    H4 -.-> S4
+    N -.-> S
+```
+
+---
+
+## Clarifying Questions for User
+
+Before implementing, please clarify:
+
+1. **For Q1 (Command Access):**
+   - Do you want to install more CLI tools in `Dockerfile.sandbox`, or just mount host directories?
+
+2. **For Q2 (Codex CLI):**
+   - Install Codex in sandbox image (Option A), or mount from host (Option B)?
+
+3. **For Q3 (Network Access):**
+   - Which network mode do you prefer?
+     - `bridge` - internet access through NAT
+     - `host` - full host network access
+     - `none` - no network (current default)
+
+4. **Are there specific directories you need read-only access to besides `/home/clawdis/clawd` and `/home/clawdis/clawd-team`?**
