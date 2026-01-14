@@ -1,11 +1,12 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
-import fs from "node:fs/promises";
-import { homedir } from "node:os";
-import path from "node:path";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
-import { Type } from "@sinclair/typebox";
+export type {
+  BashSandboxConfig,
+  ExecElevatedDefaults,
+  ExecToolDefaults,
+  ExecToolDetails,
+} from "./bash-tools.exec.js";
+export { createExecTool, execTool } from "./bash-tools.exec.js";
+export type { ProcessToolDefaults } from "./bash-tools.process.js";
+export { createProcessTool, processTool } from "./bash-tools.process.js";
 
 import { logInfo } from "../logger.js";
 import { sliceUtf16Safe } from "../utils.js";

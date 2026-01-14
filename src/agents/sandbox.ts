@@ -1,64 +1,50 @@
-import { spawn } from "node:child_process";
-import crypto from "node:crypto";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+export {
+  resolveSandboxBrowserConfig,
+  resolveSandboxConfigForAgent,
+  resolveSandboxDockerConfig,
+  resolveSandboxPruneConfig,
+  resolveSandboxScope,
+} from "./sandbox/config.js";
+export {
+  DEFAULT_SANDBOX_BROWSER_IMAGE,
+  DEFAULT_SANDBOX_COMMON_IMAGE,
+  DEFAULT_SANDBOX_IMAGE,
+} from "./sandbox/constants.js";
+export {
+  ensureSandboxWorkspaceForSession,
+  resolveSandboxContext,
+} from "./sandbox/context.js";
 
-import {
-  type BrowserBridge,
-  startBrowserBridgeServer,
-  stopBrowserBridgeServer,
-} from "../browser/bridge-server.js";
-import {
-  type ResolvedBrowserConfig,
-  resolveProfile,
-} from "../browser/config.js";
-import { DEFAULT_CLAWD_BROWSER_COLOR } from "../browser/constants.js";
-import { CHANNEL_IDS } from "../channels/registry.js";
-import {
-  type ClawdbotConfig,
-  loadConfig,
-  STATE_DIR_CLAWDBOT,
-} from "../config/config.js";
-import {
-  canonicalizeMainSessionAlias,
-  resolveAgentMainSessionKey,
-} from "../config/sessions.js";
-import { normalizeAgentId } from "../routing/session-key.js";
-import { defaultRuntime } from "../runtime.js";
-import { resolveUserPath } from "../utils.js";
-import {
-  resolveAgentConfig,
-  resolveAgentIdFromSessionKey,
-  resolveSessionAgentId,
-} from "./agent-scope.js";
-import { syncSkillsToWorkspace } from "./skills.js";
-import { expandToolGroups } from "./tool-policy.js";
-import {
-  DEFAULT_AGENT_WORKSPACE_DIR,
-  DEFAULT_AGENTS_FILENAME,
-  DEFAULT_BOOTSTRAP_FILENAME,
-  DEFAULT_HEARTBEAT_FILENAME,
-  DEFAULT_IDENTITY_FILENAME,
-  DEFAULT_SOUL_FILENAME,
-  DEFAULT_TOOLS_FILENAME,
-  DEFAULT_USER_FILENAME,
-  ensureAgentWorkspace,
-} from "./workspace.js";
+export { buildSandboxCreateArgs } from "./sandbox/docker.js";
+export {
+  listSandboxBrowsers,
+  listSandboxContainers,
+  removeSandboxBrowserContainer,
+  removeSandboxContainer,
+  type SandboxBrowserInfo,
+  type SandboxContainerInfo,
+} from "./sandbox/manage.js";
+export {
+  formatSandboxToolPolicyBlockedMessage,
+  resolveSandboxRuntimeStatus,
+} from "./sandbox/runtime-status.js";
 
-export type SandboxToolPolicy = {
-  allow?: string[];
-  deny?: string[];
-};
+export { resolveSandboxToolPolicyForAgent } from "./sandbox/tool-policy.js";
 
-export type SandboxToolPolicySource = {
-  source: "agent" | "global" | "default";
-  /**
-   * Config key path hint for humans.
-   * (Arrays use `agents.list[].…` form.)
-   */
-  key: string;
-};
+export type {
+  SandboxBrowserConfig,
+  SandboxBrowserContext,
+  SandboxConfig,
+  SandboxContext,
+  SandboxDockerConfig,
+  SandboxPruneConfig,
+  SandboxScope,
+  SandboxToolPolicy,
+  SandboxToolPolicyResolved,
+  SandboxToolPolicySource,
+  SandboxWorkspaceAccess,
+  SandboxWorkspaceInfo,
+} from "./sandbox/types.js";
 
 export type SandboxToolPolicyResolved = {
   allow: string[];
