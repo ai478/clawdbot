@@ -12,6 +12,7 @@ import type {
   ChannelMessageActionName,
   ChannelThreadingToolContext,
 } from "../../channels/plugins/types.js";
+import { getChannelDock } from "../../channels/dock.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 import type {
   GatewayClientMode,
@@ -153,7 +154,9 @@ function enforceContextIsolation(params: {
   channel: ChannelId;
   action: ChannelMessageActionName;
   params: Record<string, unknown>;
+  cfg: ClawdbotConfig;
   toolContext?: ChannelThreadingToolContext;
+  accountId?: string | null;
 }): void {
   const currentTarget = params.toolContext?.currentChannelId?.trim();
   if (!currentTarget) return;
@@ -170,6 +173,25 @@ function enforceContextIsolation(params: {
 
   if (!normalizedTarget || !normalizedCurrent) return;
   if (normalizedTarget === normalizedCurrent) return;
+
+  // Bypass for admins: if currentTarget is in the allowFrom list for this channel/account, allow cross-messaging.
+  const dock = getChannelDock(params.channel);
+  const allowFrom = dock?.config?.resolveAllowFrom?.({
+    cfg: params.cfg,
+    accountId: params.accountId,
+  });
+  if (allowFrom) {
+    const formattedAllowFrom =
+      dock?.config?.formatAllowFrom?.({
+        cfg: params.cfg,
+        accountId: params.accountId,
+        allowFrom,
+      }) ?? allowFrom.map((v) => String(v).toLowerCase());
+
+    if (formattedAllowFrom.includes(normalizedCurrent)) {
+      return;
+    }
+  }
 
   throw new Error(
     `Cross-context messaging denied: action=${params.action} target="${target}" while bound to "${currentTarget}" (channel=${params.channel}).`,
@@ -205,7 +227,9 @@ export async function runMessageAction(
     channel,
     action,
     params,
+    cfg,
     toolContext: input.toolContext,
+    accountId: accountId ?? undefined,
   });
 
   const gateway = input.gateway
