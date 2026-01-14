@@ -256,11 +256,6 @@ export async function startGatewayServer(
   const hasConnectedMobileNode = () => hasConnectedMobileNodeFromBridge(bridge);
   applyGatewayLaneConcurrency(cfgAtStart);
 
-  const hasConnectedMobileNode = (): boolean => {
-    const connected = bridge?.listConnected?.() ?? [];
-    return connected.some((n) => isMobilePlatform(n.platform));
-  };
-  await listenGatewayHttpServer({ httpServer, bindHost, port });
 
   if (resolvedAuth.mode === "token" && resolvedAuth.token) {
     const uiPath = controlUiBasePath ? `${controlUiBasePath}/` : "/";
@@ -270,9 +265,10 @@ export async function startGatewayServer(
     );
   }
 
-  const wss = new WebSocketServer({
-    noServer: true,
-    maxPayload: MAX_PAYLOAD_BYTES,
+  let cronState = buildGatewayCronService({
+    cfg: cfgAtStart,
+    deps,
+    broadcast,
   });
   let { cron, storePath: cronStorePath } = cronState;
 
