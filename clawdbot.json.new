@@ -47,7 +47,6 @@
           "docker": {
             "binds": [
               "/home/clawdis/clawd:/admin-soul:ro",
-              "/home/clawdis/clawd-team:/agent:ro",
               "/home/clawdis/.clawdbot/clawdbot.json:/bot-config/clawdbot.json:ro",
               "/home/clawdis/shared:/shared:rw"
             ]
@@ -105,6 +104,16 @@
       "agentId": "team",
       "match": {
         "channel": "telegram",
+        "peer": {
+          "kind": "group",
+          "id": "-5211821786"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
         "accountId": "*"
       }
     }
@@ -126,7 +135,8 @@
         "6519362897",
         "822984553",
         "892973720",
-        "5148176939"
+        "5148176939",
+        "-5211821786"
       ],
       "groupPolicy": "open",
       "streamMode": "partial"
