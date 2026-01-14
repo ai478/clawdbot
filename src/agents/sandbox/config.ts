@@ -55,8 +55,10 @@ export function resolveSandboxDockerConfig(params: {
   const binds = [
     ...(globalDocker?.binds ?? []),
     ...(globalDocker as any)?.volumes ?? [],
+    ...(globalDocker as any)?.mounts ?? [],
     ...(agentDocker?.binds ?? []),
     ...(agentDocker as any)?.volumes ?? [],
+    ...(agentDocker as any)?.mounts ?? [],
   ];
 
   for (const key of SENSITIVE_KEYS) {

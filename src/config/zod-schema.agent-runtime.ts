@@ -77,6 +77,9 @@ export const SandboxDockerSchema = z
     apparmorProfile: z.string().optional(),
     dns: z.array(z.string()).optional(),
     extraHosts: z.array(z.string()).optional(),
+    binds: z.array(z.string()).optional(),
+    volumes: z.array(z.string()).optional(),
+    mounts: z.array(z.string()).optional(),
   })
   .optional();
 
