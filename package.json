@@ -202,10 +202,10 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16",
+    "@types/tar": "^6.1.13",
     "wireit": "^0.14.12"
   },
   "pnpm": {
-    "minimumReleaseAge": 2880,
     "overrides": {
       "@sinclair/typebox": "0.34.47"
     },
