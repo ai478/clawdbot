@@ -21,13 +21,26 @@ vi.mock("grammy", () => ({
     api = botApi;
     constructor(
       public token: string,
-      public options?: { client?: { fetch?: typeof fetch } },
+      public options?: {
+        client?: { fetch?: typeof fetch; timeoutSeconds?: number };
+      },
     ) {
       botCtorSpy(token, options);
     }
   },
   InputFile: class {},
 }));
+
+const { loadConfig } = vi.hoisted(() => ({
+  loadConfig: vi.fn(() => ({})),
+}));
+vi.mock("../config/config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../config/config.js")>();
+  return {
+    ...actual,
+    loadConfig,
+  };
+});
 
 import { buildInlineKeyboard, sendMessageTelegram } from "./send.js";
 
@@ -73,9 +86,40 @@ describe("buildInlineKeyboard", () => {
 
 describe("sendMessageTelegram", () => {
   beforeEach(() => {
+    loadConfig.mockReturnValue({});
     loadWebMedia.mockReset();
     botApi.sendMessage.mockReset();
     botCtorSpy.mockReset();
+  });
+
+  it("passes timeoutSeconds to grammY client when configured", async () => {
+    loadConfig.mockReturnValue({
+      channels: { telegram: { timeoutSeconds: 60 } },
+    });
+    await sendMessageTelegram("123", "hi", { token: "tok" });
+    expect(botCtorSpy).toHaveBeenCalledWith(
+      "tok",
+      expect.objectContaining({
+        client: expect.objectContaining({ timeoutSeconds: 60 }),
+      }),
+    );
+  });
+  it("prefers per-account timeoutSeconds overrides", async () => {
+    loadConfig.mockReturnValue({
+      channels: {
+        telegram: {
+          timeoutSeconds: 60,
+          accounts: { foo: { timeoutSeconds: 61 } },
+        },
+      },
+    });
+    await sendMessageTelegram("123", "hi", { token: "tok", accountId: "foo" });
+    expect(botCtorSpy).toHaveBeenCalledWith(
+      "tok",
+      expect.objectContaining({
+        client: expect.objectContaining({ timeoutSeconds: 61 }),
+      }),
+    );
   });
 
   it("falls back to plain text when Telegram rejects HTML", async () => {
