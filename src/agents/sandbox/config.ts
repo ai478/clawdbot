@@ -14,6 +14,7 @@ import {
   DEFAULT_SANDBOX_WORKDIR,
   DEFAULT_SANDBOX_WORKSPACE_ROOT,
 } from "./constants.js";
+import { SENSITIVE_KEYS } from "../shared-constants.js";
 import { resolveSandboxToolPolicyForAgent } from "./tool-policy.js";
 import type {
   SandboxBrowserConfig,
@@ -51,7 +52,22 @@ export function resolveSandboxDockerConfig(params: {
     ? { ...globalDocker?.ulimits, ...agentDocker.ulimits }
     : globalDocker?.ulimits;
 
-  const binds = [...(globalDocker?.binds ?? []), ...(agentDocker?.binds ?? [])];
+  const binds = [
+    ...(globalDocker?.binds ?? []),
+    ...(globalDocker as any)?.volumes ?? [],
+    ...(agentDocker?.binds ?? []),
+    ...(agentDocker as any)?.volumes ?? [],
+  ];
+
+  for (const key of SENSITIVE_KEYS) {
+    if (process.env[key] && !env[key]) {
+      env[key] = process.env[key]!;
+    }
+  }
+
+  if (process.env.CLAWDBOT_GATEWAY_TOKEN) {
+    env.CLAWDBOT_GATEWAY_TOKEN = process.env.CLAWDBOT_GATEWAY_TOKEN;
+  }
 
   return {
     image: agentDocker?.image ?? globalDocker?.image ?? DEFAULT_SANDBOX_IMAGE,

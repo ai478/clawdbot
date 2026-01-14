@@ -40,24 +40,7 @@ const DEFAULT_PATH =
   process.env.PATH ??
   "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
-// Keys to scrub from the agent's shell environment to prevent accidental disclosure.
-const SENSITIVE_KEYS = [
-  "TELEGRAM_BOT_TOKEN",
-  "CLAWDBOT_GATEWAY_TOKEN",
-  "GITHUB_TOKEN",
-  "OPENAI_API_KEY",
-  "ANTHROPIC_API_KEY",
-  "GEMINI_API_KEY",
-  "ELEVENLABS_API_KEY",
-  "BRAVE_API_KEY",
-  "GOOGLE_PLACES_API_KEY",
-  "LINEAR_API_KEY",
-  "CLAUDE_AI_SESSION_KEY",
-  "CLAUDE_WEB_SESSION_KEY",
-  "CLAUDE_WEB_COOKIE",
-  "GITLAB_TOKEN",
-  "MINIMAX_API_KEY",
-];
+import { SENSITIVE_KEYS } from "./shared-constants.js";
 
 // NOTE: Using Type.Unsafe with enum instead of Type.Union([Type.Literal(...)])
 // because Claude API on Vertex AI rejects nested anyOf schemas as invalid JSON Schema.

@@ -187,6 +187,31 @@ export function attachGatewayWsMessageHandler(params: {
 
         const frame = parsed as RequestFrame;
         const connectParams = frame.params as ConnectParams;
+
+        // If no auth is provided in the handshake but a token was in the URL query string,
+        // use it as the connection token. This is required for the Web Control UI.
+        const queryToken = (() => {
+          try {
+            const url = new URL(
+              upgradeReq.url ?? "",
+              `http://${requestHost || "localhost"}`,
+            );
+            return url.searchParams.get("token") || undefined;
+          } catch {
+            return undefined;
+          }
+        })();
+        if (
+          queryToken &&
+          !connectParams.auth?.token &&
+          !connectParams.auth?.password
+        ) {
+          if (!connectParams.auth) {
+            connectParams.auth = {};
+          }
+          connectParams.auth.token = queryToken;
+        }
+
         const clientLabel =
           connectParams.client.displayName ?? connectParams.client.id;
 

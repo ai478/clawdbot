@@ -547,6 +547,14 @@ export async function startGatewayServer(
   };
   await listenGatewayHttpServer({ httpServer, bindHost, port });
 
+  if (resolvedAuth.mode === "token" && resolvedAuth.token) {
+    const uiPath = controlUiBasePath ? `${controlUiBasePath}/` : "/";
+    log.info(`Gateway Token: ${resolvedAuth.token}`);
+    log.info(
+      `Web Control URL: http://${bindHost}:${port}${uiPath}?token=${resolvedAuth.token}`,
+    );
+  }
+
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_PAYLOAD_BYTES,

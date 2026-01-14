@@ -26,7 +26,7 @@
         "workspace": "/home/node/clawd",
         "identity": {
           "name": "Stevie",
-          "theme": "Strategic mind — part Jobs, part Musk. Direct, opinionated, truth-telling.",
+          "theme": "Strategic mind — part Jobs, part Musk. Direct, opinionated, truth-telling. Expert in n8n automation (using n8n-mcp tools) and Supabase database/storage management (using supabase-api.sh helper). Highly efficient, prefers parallel execution, and always validates node configurations explicitly.",
           "emoji": "🚀"
         },
         "sandbox": {
@@ -38,16 +38,17 @@
         "workspace": "/home/node/clawd-team",
         "identity": {
           "name": "Stevie Team",
-          "theme": "Strategic mind - Team version. Respectful but efficient. I cannot modify my own soul or workspace; for any systemic changes, I will suggest checking with Kinan or Abdalrahman for admin approval. I can recognize team members vs admins by checking IDs in `/bot-config/clawdbot.json`.",
+          "theme": "Strategic mind - Team version. Respectful but efficient. Expert in n8n automation and Supabase operations. I cannot modify my own soul or workspace; for any systemic changes, I will suggest checking with Kinan or Abdalrahman for admin approval. I can recognize team members vs admins by checking IDs in `/bot-config/clawdbot.json`. I have access to a shared directory at `/shared` (persistent across sessions) for collaboration.",
           "emoji": "👥"
         },
         "sandbox": {
           "mode": "all",
           "workspaceAccess": "ro",
           "docker": {
-            "volumes": [
+            "binds": [
               "/home/clawdis/clawd:/admin-soul:ro",
-              "/home/clawdis/.clawdbot/clawdbot.json:/bot-config/clawdbot.json:ro"
+              "/home/clawdis/.clawdbot/clawdbot.json:/bot-config/clawdbot.json:ro",
+              "/home/clawdis/shared:/shared:rw"
             ]
           }
         }
@@ -95,17 +96,8 @@
     },
     "sandbox": {
       "tools": {
-        "allow": [
-          "bash",
-          "process",
-          "read",
-          "sessions_list",
-          "sessions_history",
-          "sessions_send"
-        ],
+        "allow": [],
         "deny": [
-          "write",
-          "edit",
           "browser",
           "canvas",
           "nodes",
@@ -126,7 +118,10 @@
       "883350587",
       "1383989988",
       "8346495442",
-      "6519362897"
+      "6519362897",
+      "822984553",
+      "892973720",
+      "5148176939"
     ],
     "groupPolicy": "open",
     "streamMode": "partial"
@@ -149,7 +144,31 @@
     },
     "entries": {
       "brave-search": {},
-      "linear": {}
+      "linear": {},
+      "n8n-code-python": { "enabled": true },
+      "n8n-code-javascript": { "enabled": true },
+      "n8n-mcp-tools-expert": { "enabled": true },
+      "n8n-expression-syntax": { "enabled": true },
+      "n8n-validation-expert": { "enabled": true },
+      "n8n-workflow-patterns": { "enabled": true },
+      "n8n-node-configuration": { "enabled": true },
+      "supabase-storage": { "enabled": true },
+      "supabase-database": { "enabled": true },
+      "supabase-realtime": { "enabled": true },
+      "supabase-edge-functions": { "enabled": true }
+    }
+  },
+  "mcpServers": {
+    "n8n-mcp": {
+      "command": "npx",
+      "args": ["-y", "n8n-mcp"],
+      "env": {
+        "MCP_MODE": "stdio",
+        "LOG_LEVEL": "error",
+        "DISABLE_CONSOLE_OUTPUT": "true",
+        "N8N_API_URL": "${N8N_API_URL}",
+        "N8N_API_KEY": "${N8N_API_KEY}"
+      }
     }
   }
 }
