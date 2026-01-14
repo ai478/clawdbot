@@ -50,13 +50,13 @@ export const registerTelegramNativeCommands = ({
       ) => Promise<unknown>;
     };
     if (typeof api.setMyCommands === "function") {
+      const commandsToSet = nativeCommands.map((command) => ({
+        command: command.name,
+        description: command.description,
+      }));
+      logVerbose(`telegram: registering commands: ${JSON.stringify(commandsToSet)}`);
       api
-        .setMyCommands(
-          nativeCommands.map((command) => ({
-            command: command.name,
-            description: command.description,
-          })),
-        )
+        .setMyCommands(commandsToSet)
         .catch((err) => {
           runtime.error?.(
             danger(`telegram setMyCommands failed: ${String(err)}`),
@@ -232,6 +232,7 @@ export const registerTelegramNativeCommands = ({
             SenderName: buildSenderName(msg),
             SenderId: senderId || undefined,
             SenderUsername: senderUsername || undefined,
+            Provider: "telegram",
             Surface: "telegram",
             MessageSid: String(msg.message_id),
             Timestamp: msg.date ? msg.date * 1000 : undefined,
