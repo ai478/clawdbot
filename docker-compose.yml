@@ -37,6 +37,7 @@ services:
       - /home/clawdis/clawd:/home/node/clawd
       - /home/clawdis/clawd-team:/home/node/clawd-team
       - /home/clawdis/shared:/home/node/shared
+      - /home/clawdis/shared/skills:/home/node/.clawdbot/skills
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${CLAWDBOT_GATEWAY_PORT:-18789}:18789"
