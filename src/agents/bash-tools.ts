@@ -56,6 +56,7 @@ const SENSITIVE_KEYS = [
   "CLAUDE_WEB_SESSION_KEY",
   "CLAUDE_WEB_COOKIE",
   "GITLAB_TOKEN",
+  "MINIMAX_API_KEY",
 ];
 
 // NOTE: Using Type.Unsafe with enum instead of Type.Union([Type.Literal(...)])

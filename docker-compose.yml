@@ -23,6 +23,7 @@ services:
       GITLAB_TOKEN: ${GITLAB_TOKEN}
       GITLAB_HOST: ${GITLAB_HOST}
       GITLAB_URL: ${GITLAB_URL}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
       CLAWDBOT_BROWSER_CONTROL_URL: http://0.0.0.0:18791
     volumes:
       - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
@@ -64,6 +65,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY}
       BRAVE_API_KEY: ${BRAVE_API_KEY}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
     volumes:
       - /home/clawdis/.clawdbot:/home/node/.clawdbot
       - /home/clawdis/clawd:/home/node/clawd

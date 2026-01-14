@@ -79,6 +79,9 @@ ENV PATH="$PNPM_HOME:$GOPATH/bin:$PATH"
 RUN pnpm config set store-dir /home/node/.local/share/pnpm/store && \
     pnpm config set prefix /home/node/.local
 
+# Install Claude Code CLI
+RUN pnpm add -g @anthropic-ai/claude-code
+
 WORKDIR /app
 
 ARG CLAWDBOT_DOCKER_APT_PACKAGES=""
