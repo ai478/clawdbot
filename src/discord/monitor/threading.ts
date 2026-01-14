@@ -3,6 +3,7 @@ import { Routes } from "discord-api-types/v10";
 import { createReplyReferencePlanner } from "../../auto-reply/reply/reply-reference.js";
 import type { ReplyToMode } from "../../config/config.js";
 import { logVerbose } from "../../globals.js";
+import { buildAgentSessionKey } from "../../routing/resolve-route.js";
 import { truncateUtf16Safe } from "../../utils.js";
 import type { DiscordChannelConfigResolved } from "./allow-list.js";
 import type { DiscordMessageEvent } from "./listeners.js";
@@ -44,10 +45,7 @@ export function resolveDiscordThreadChannel(params: {
 }): DiscordThreadChannel | null {
   if (!params.isGuildMessage) return null;
   const { message, channelInfo } = params;
-  const channel =
-    "channel" in message
-      ? (message as { channel?: unknown }).channel
-      : undefined;
+  const channel = "channel" in message ? (message as { channel?: unknown }).channel : undefined;
   const isThreadChannel =
     channel &&
     typeof channel === "object" &&
@@ -71,10 +69,7 @@ export async function resolveDiscordThreadParentInfo(params: {
 }): Promise<DiscordThreadParentInfo> {
   const { threadChannel, channelInfo, client } = params;
   const parentId =
-    threadChannel.parentId ??
-    threadChannel.parent?.id ??
-    channelInfo?.parentId ??
-    undefined;
+    threadChannel.parentId ?? threadChannel.parent?.id ?? channelInfo?.parentId ?? undefined;
   if (!parentId) return {};
   let parentName = threadChannel.parent?.name;
   const parentInfo = await resolveDiscordChannelInfo(client, parentId);
@@ -96,11 +91,8 @@ export async function resolveDiscordThreadStarter(params: {
   try {
     const parentType = params.parentType;
     const isForumParent =
-      parentType === ChannelType.GuildForum ||
-      parentType === ChannelType.GuildMedia;
-    const messageChannelId = isForumParent
-      ? params.channel.id
-      : params.parentId;
+      parentType === ChannelType.GuildForum || parentType === ChannelType.GuildMedia;
+    const messageChannelId = isForumParent ? params.channel.id : params.parentId;
     if (!messageChannelId) return null;
     const starter = (await params.client.rest.get(
       Routes.channelMessage(messageChannelId, params.channel.id),
@@ -116,8 +108,7 @@ export async function resolveDiscordThreadStarter(params: {
       timestamp?: string | null;
     };
     if (!starter) return null;
-    const text =
-      starter.content?.trim() ?? starter.embeds?.[0]?.description?.trim() ?? "";
+    const text = starter.content?.trim() ?? starter.embeds?.[0]?.description?.trim() ?? "";
     if (!text) return null;
     const author =
       starter.member?.nick ??
@@ -152,10 +143,7 @@ export function resolveDiscordReplyTarget(opts: {
   return opts.hasReplied ? undefined : replyToId;
 }
 
-export function sanitizeDiscordThreadName(
-  rawName: string,
-  fallbackId: string,
-): string {
+export function sanitizeDiscordThreadName(rawName: string, fallbackId: string): string {
   const cleanedName = rawName
     .replace(/<@!?\d+>/g, "") // user mentions
     .replace(/<@&\d+>/g, "") // role mentions
@@ -172,6 +160,47 @@ type DiscordReplyDeliveryPlan = {
   replyTarget: string;
   replyReference: ReturnType<typeof createReplyReferencePlanner>;
 };
+
+export type DiscordAutoThreadContext = {
+  createdThreadId: string;
+  From: string;
+  To: string;
+  OriginatingTo: string;
+  SessionKey: string;
+  ParentSessionKey: string;
+};
+
+export function resolveDiscordAutoThreadContext(params: {
+  agentId: string;
+  channel: string;
+  messageChannelId: string;
+  createdThreadId?: string | null;
+}): DiscordAutoThreadContext | null {
+  const createdThreadId = String(params.createdThreadId ?? "").trim();
+  if (!createdThreadId) return null;
+  const messageChannelId = params.messageChannelId.trim();
+  if (!messageChannelId) return null;
+
+  const threadSessionKey = buildAgentSessionKey({
+    agentId: params.agentId,
+    channel: params.channel,
+    peer: { kind: "channel", id: createdThreadId },
+  });
+  const parentSessionKey = buildAgentSessionKey({
+    agentId: params.agentId,
+    channel: params.channel,
+    peer: { kind: "channel", id: messageChannelId },
+  });
+
+  return {
+    createdThreadId,
+    From: `group:${createdThreadId}`,
+    To: `channel:${createdThreadId}`,
+    OriginatingTo: `channel:${createdThreadId}`,
+    SessionKey: threadSessionKey,
+    ParentSessionKey: parentSessionKey,
+  };
+}
 
 export async function maybeCreateDiscordAutoThread(params: {
   client: Client;
