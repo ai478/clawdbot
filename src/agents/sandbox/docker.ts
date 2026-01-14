@@ -204,6 +204,10 @@ async function createSandboxContainer(params: {
 
   args.push(cfg.image, "sleep", "infinity");
 
+  import("../../globals.js").then(({ logVerbose }) => {
+    logVerbose(`sandbox: creating container ${name} with args: ${args.join(" ")}`);
+  });
+
   await execDocker(args);
   await execDocker(["start", name]);
 
@@ -234,7 +238,14 @@ export async function ensureSandboxContainer(params: {
       scopeKey,
     });
   } else if (!state.running) {
+    import("../../globals.js").then(({ logVerbose }) => {
+      logVerbose(`sandbox: starting existing container ${containerName}`);
+    });
     await execDocker(["start", containerName]);
+  } else {
+    import("../../globals.js").then(({ logVerbose }) => {
+      logVerbose(`sandbox: container ${containerName} is already running`);
+    });
   }
   const now = Date.now();
   await updateRegistry({
