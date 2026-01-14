@@ -42,15 +42,19 @@
           "emoji": "👥"
         },
         "sandbox": {
-          "mode": "all",
-          "workspaceAccess": "ro",
-          "docker": {
-            "binds": [
-              "/home/clawdis/clawd:/admin-soul:ro",
-              "/home/clawdis/.clawdbot/clawdbot.json:/bot-config/clawdbot.json:ro",
-              "/home/clawdis/shared:/shared:rw"
-            ]
-          }
+          "mode": "off"
+        }
+      },
+      {
+        "id": "gitsync",
+        "workspace": "/home/node/clawd",
+        "identity": {
+          "name": "GitSync Bot",
+          "theme": "Safe git workflow assistant. Creates feature branches, commits changes, and pushes to v1 remote. NEVER modifies main branch - only reads from it. Expert in git workflow and safe branching strategies.",
+          "emoji": "🔄"
+        },
+        "sandbox": {
+          "mode": "off"
         }
       }
     ]
