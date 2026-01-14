@@ -198,6 +198,10 @@ async function createSandboxContainer(params: {
       `${params.agentWorkspaceDir}:${SANDBOX_AGENT_WORKSPACE_MOUNT}${agentMountSuffix}`,
     );
   }
+
+  // Ensure bundled skills are accessible in the sandbox at the same paths as global
+  args.push("-v", `/app/skills:/app/skills:ro`);
+
   args.push(cfg.image, "sleep", "infinity");
 
   await execDocker(args);
