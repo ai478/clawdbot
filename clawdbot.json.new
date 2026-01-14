@@ -47,6 +47,7 @@
           "docker": {
             "binds": [
               "/home/clawdis/clawd:/admin-soul:ro",
+              "/home/clawdis/clawd-team:/agent:ro",
               "/home/clawdis/.clawdbot/clawdbot.json:/bot-config/clawdbot.json:ro",
               "/home/clawdis/shared:/shared:rw"
             ]
@@ -55,35 +56,6 @@
       }
     ]
   },
-  "bindings": [
-    {
-      "agentId": "admin",
-      "match": {
-        "provider": "telegram",
-        "peer": {
-          "kind": "dm",
-          "id": "883350587"
-        }
-      }
-    },
-    {
-      "agentId": "admin",
-      "match": {
-        "provider": "telegram",
-        "peer": {
-          "kind": "dm",
-          "id": "1383989988"
-        }
-      }
-    },
-    {
-      "agentId": "team",
-      "match": {
-        "provider": "telegram",
-        "accountId": "*"
-      }
-    }
-  ],
   "tools": {
     "elevated": {
       "enabled": true,
@@ -108,23 +80,57 @@
       }
     }
   },
+  "bindings": [
+    {
+      "agentId": "admin",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "883350587"
+        }
+      }
+    },
+    {
+      "agentId": "admin",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "1383989988"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "accountId": "*"
+      }
+    }
+  ],
   "messages": {
     "ackReactionScope": "group-mentions"
   },
-  "telegram": {
-    "enabled": true,
-    "dmPolicy": "allowlist",
-    "allowFrom": [
-      "883350587",
-      "1383989988",
-      "8346495442",
-      "6519362897",
-      "822984553",
-      "892973720",
-      "5148176939"
-    ],
-    "groupPolicy": "open",
-    "streamMode": "partial"
+  "commands": {
+    "native": "auto"
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "allowlist",
+      "allowFrom": [
+        "883350587",
+        "1383989988",
+        "8346495442",
+        "6519362897",
+        "822984553",
+        "892973720",
+        "5148176939"
+      ],
+      "groupPolicy": "open",
+      "streamMode": "partial"
+    }
   },
   "gateway": {
     "port": 18789,
@@ -145,23 +151,48 @@
     "entries": {
       "brave-search": {},
       "linear": {},
-      "n8n-code-python": { "enabled": true },
-      "n8n-code-javascript": { "enabled": true },
-      "n8n-mcp-tools-expert": { "enabled": true },
-      "n8n-expression-syntax": { "enabled": true },
-      "n8n-validation-expert": { "enabled": true },
-      "n8n-workflow-patterns": { "enabled": true },
-      "n8n-node-configuration": { "enabled": true },
-      "supabase-storage": { "enabled": true },
-      "supabase-database": { "enabled": true },
-      "supabase-realtime": { "enabled": true },
-      "supabase-edge-functions": { "enabled": true }
+      "n8n-code-python": {
+        "enabled": true
+      },
+      "n8n-code-javascript": {
+        "enabled": true
+      },
+      "n8n-mcp-tools-expert": {
+        "enabled": true
+      },
+      "n8n-expression-syntax": {
+        "enabled": true
+      },
+      "n8n-validation-expert": {
+        "enabled": true
+      },
+      "n8n-workflow-patterns": {
+        "enabled": true
+      },
+      "n8n-node-configuration": {
+        "enabled": true
+      },
+      "supabase-storage": {
+        "enabled": true
+      },
+      "supabase-database": {
+        "enabled": true
+      },
+      "supabase-realtime": {
+        "enabled": true
+      },
+      "supabase-edge-functions": {
+        "enabled": true
+      }
     }
   },
   "mcpServers": {
     "n8n-mcp": {
       "command": "npx",
-      "args": ["-y", "n8n-mcp"],
+      "args": [
+        "-y",
+        "n8n-mcp"
+      ],
       "env": {
         "MCP_MODE": "stdio",
         "LOG_LEVEL": "error",
