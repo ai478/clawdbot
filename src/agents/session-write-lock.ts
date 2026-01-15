@@ -43,7 +43,7 @@ export async function acquireSessionWriteLock(params: {
   release: () => Promise<void>;
 }> {
   const timeoutMs = params.timeoutMs ?? 10_000;
-  const staleMs = params.staleMs ?? 30 * 60 * 1000;
+  const staleMs = params.staleMs ?? 1 * 60 * 1000;
   const sessionFile = params.sessionFile;
   const lockPath = `${sessionFile}.lock`;
 

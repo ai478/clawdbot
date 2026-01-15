@@ -145,6 +145,46 @@
           "id": "1383989988"
         }
       }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "822984553"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "8346495442"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "6519362897"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "5148176939"
+        }
+      }
     }
   ],
   "messages": {

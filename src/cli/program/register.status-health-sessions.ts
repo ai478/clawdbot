@@ -99,7 +99,7 @@ Examples:
       }
     });
 
-  program
+  const sessions = program
     .command("sessions")
     .description("List stored conversation sessions")
     .option("--json", "Output as JSON", false)
@@ -129,6 +129,22 @@ Shows token usage per session when the agent reports it; set agents.defaults.con
           json: Boolean(opts.json),
           store: opts.store as string | undefined,
           active: opts.active as string | undefined,
+        },
+        defaultRuntime,
+      );
+    });
+
+  sessions
+    .command("clear-lock")
+    .description("Manually clear stale session lock files (.lock)")
+    .option("--store <path>", "Path to session store (default: resolved from config)")
+    .option("--verbose", "Verbose logging", false)
+    .action(async (opts: { store?: string; verbose?: boolean }) => {
+      setVerbose(Boolean(opts.verbose));
+      const { clearSessionsLockCommand } = await import("../../commands/sessions.clear-lock.js");
+      await clearSessionsLockCommand(
+        {
+          store: opts.store as string | undefined,
         },
         defaultRuntime,
       );
