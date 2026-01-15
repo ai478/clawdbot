@@ -79,6 +79,11 @@ export type SnapshotResult =
         refs: number;
         interactive: number;
       };
+      labels?: boolean;
+      labelsCount?: number;
+      labelsSkipped?: number;
+      imagePath?: string;
+      imageType?: "png" | "jpeg";
     };
 
 export function resolveBrowserControlUrl(overrideUrl?: string) {
@@ -147,7 +152,12 @@ export type BrowserCreateProfileResult = {
 
 export async function browserCreateProfile(
   baseUrl: string,
-  opts: { name: string; color?: string; cdpUrl?: string },
+  opts: {
+    name: string;
+    color?: string;
+    cdpUrl?: string;
+    driver?: "clawd" | "extension";
+  },
 ): Promise<BrowserCreateProfileResult> {
   return await fetchBrowserJson<BrowserCreateProfileResult>(`${baseUrl}/profiles/create`, {
     method: "POST",
@@ -156,6 +166,7 @@ export async function browserCreateProfile(
       name: opts.name,
       color: opts.color,
       cdpUrl: opts.cdpUrl,
+      driver: opts.driver,
     }),
     timeoutMs: 10000,
   });
@@ -264,6 +275,8 @@ export async function browserSnapshot(
     depth?: number;
     selector?: string;
     frame?: string;
+    labels?: boolean;
+    mode?: "efficient";
     profile?: string;
   },
 ): Promise<SnapshotResult> {
@@ -280,6 +293,8 @@ export async function browserSnapshot(
     q.set("depth", String(opts.depth));
   if (opts.selector?.trim()) q.set("selector", opts.selector.trim());
   if (opts.frame?.trim()) q.set("frame", opts.frame.trim());
+  if (opts.labels === true) q.set("labels", "1");
+  if (opts.mode) q.set("mode", opts.mode);
   if (opts.profile) q.set("profile", opts.profile);
   return await fetchBrowserJson<SnapshotResult>(`${baseUrl}/snapshot?${q.toString()}`, {
     timeoutMs: 20000,

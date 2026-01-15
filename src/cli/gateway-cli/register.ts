@@ -25,7 +25,8 @@ export function registerGatewayCli(program: Command) {
       .description("Run the WebSocket Gateway")
       .addHelpText(
         "after",
-        () => `\n${theme.muted("Docs:")} ${formatDocsLink("/gateway", "docs.clawd.bot/gateway")}\n`,
+        () =>
+          `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/gateway", "docs.clawd.bot/cli/gateway")}\n`,
       ),
   );
 
@@ -34,7 +35,6 @@ export function registerGatewayCli(program: Command) {
     program
       .command("gateway-daemon", { hidden: true })
       .description("Run the WebSocket Gateway as a long-lived daemon"),
-    { legacyTokenEnv: true },
   );
 
   gatewayCallOpts(

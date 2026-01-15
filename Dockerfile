@@ -82,6 +82,9 @@ RUN pnpm config set store-dir /home/node/.local/share/pnpm/store && \
 # Install Claude Code CLI
 RUN pnpm add -g @anthropic-ai/claude-code
 
+# Install OpenAI Codex CLI
+RUN npm install -g @openai/codex
+
 WORKDIR /app
 
 ARG CLAWDBOT_DOCKER_APT_PACKAGES=""
