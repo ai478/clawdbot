@@ -230,6 +230,14 @@
       "destination": "/cli/sandbox"
     },
     {
+      "source": "/sandboxing",
+      "destination": "/gateway/sandboxing"
+    },
+    {
+      "source": "/sandboxing/",
+      "destination": "/gateway/sandboxing"
+    },
+    {
       "source": "/AGENTS.default",
       "destination": "/reference/AGENTS.default"
     },
@@ -851,6 +859,7 @@
           "gateway/gateway-lock",
           "environment",
           "gateway/configuration",
+          "gateway/multiple-gateways",
           "gateway/configuration-examples",
           "gateway/authentication",
           "gateway/openai-http-api",
@@ -1020,16 +1029,6 @@
           "reference/templates/SOUL",
           "reference/templates/TOOLS",
           "reference/templates/USER"
-        ]
-      },
-      {
-        "group": "Experiments & Proposals",
-        "pages": [
-          "experiments/onboarding-config-protocol",
-          "experiments/plans/cron-add-hardening",
-          "experiments/plans/group-policy-hardening",
-          "experiments/proposals/model-config",
-          "experiments/research/memory"
         ]
       }
     ]

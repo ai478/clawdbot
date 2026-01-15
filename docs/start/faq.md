@@ -613,7 +613,7 @@ Gateway process.
 
 Notes:
 - If you use allowlists, add `web_search`/`web_fetch` or `group:web`.
-- In sandboxed sessions, `web_fetch` auto-enables unless explicitly disabled.
+- `web_fetch` is enabled by default (unless explicitly disabled).
 - Daemons read env vars from `~/.clawdbot/.env` (or the service environment).
 
 Docs: [Web tools](/tools/web).
@@ -1290,6 +1290,7 @@ Quick setup (recommended):
 - Install a per-profile daemon: `clawdbot --profile <name> daemon install`.
 
 Profiles also suffix service names (`com.clawdbot.<profile>`, `clawdbot-gateway-<profile>.service`, `Clawdbot Gateway (<profile>)`).
+Full guide: [Multiple gateways](/gateway/multiple-gateways).
 
 ### What does “invalid handshake” / code 1008 mean?
 
