@@ -82,8 +82,10 @@ RUN pnpm config set store-dir /home/node/.local/share/pnpm/store && \
 # Install Claude Code CLI
 RUN pnpm add -g @anthropic-ai/claude-code
 
-# Install OpenAI Codex CLI
+# Install OpenAI Codex CLI (need root for global npm install)
+USER root
 RUN npm install -g @openai/codex
+USER node
 
 WORKDIR /app
 
