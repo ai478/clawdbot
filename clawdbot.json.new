@@ -18,6 +18,11 @@
       "workspace": "/home/node/clawd",
       "sandbox": {
         "mode": "off"
+      },
+      "sessions": {
+        "spawn": {
+          "allow": ["gitsync"]
+        }
       }
     },
     "list": [
@@ -120,13 +125,34 @@
         "channel": "telegram",
         "accountId": "*"
       }
+    },
+    {
+      "agentId": "gitsync",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "883350587"
+        }
+      }
+    },
+    {
+      "agentId": "gitsync",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "1383989988"
+        }
+      }
     }
   ],
   "messages": {
     "ackReactionScope": "group-mentions"
   },
   "commands": {
-    "native": "auto"
+    "native": "auto",
+    "restart": true
   },
   "channels": {
     "telegram": {
