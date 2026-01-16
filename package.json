@@ -133,7 +133,7 @@
   "engines": {
     "node": ">=22.12.0"
   },
-  "packageManager": "pnpm@10.23.0",
+  "packageManager": "pnpm@10.28.0",
   "dependencies": {
     "@buape/carbon": "0.0.0-beta-20260110172854",
     "@clack/prompts": "^0.11.0",
@@ -192,6 +192,7 @@
     "@types/node": "^25.0.6",
     "@types/proper-lockfile": "^4.1.4",
     "@types/qrcode-terminal": "^0.12.2",
+    "@types/tar": "^6.1.13",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.0.16",
     "docx-preview": "^0.3.7",
@@ -208,7 +209,6 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16",
-    "@types/tar": "^6.1.13",
     "wireit": "^0.14.12"
   },
   "pnpm": {

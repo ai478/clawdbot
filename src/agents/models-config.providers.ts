@@ -38,6 +38,13 @@ const MOONSHOT_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
+const OLLAMA_DEFAULT_COST = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
 function normalizeApiKeyConfig(value: string): string {
   const trimmed = value.trim();
   const match = /^\$\{([A-Z0-9_]+)\}$/.exec(trimmed);
@@ -192,6 +199,51 @@ function buildSyntheticProvider(): ProviderConfig {
   };
 }
 
+function buildOllamaProvider(baseUrl: string): ProviderConfig {
+  return {
+    baseUrl,
+    api: "openai-completions",
+    models: [
+      {
+        id: "llama3",
+        name: "Llama 3",
+        reasoning: false,
+        input: ["text"],
+        cost: OLLAMA_DEFAULT_COST,
+        contextWindow: 8192,
+        maxTokens: 4096,
+      },
+      {
+        id: "llama2",
+        name: "Llama 2",
+        reasoning: false,
+        input: ["text"],
+        cost: OLLAMA_DEFAULT_COST,
+        contextWindow: 4096,
+        maxTokens: 4096,
+      },
+    ],
+  };
+}
+
+function buildLlamaCppProvider(baseUrl: string): ProviderConfig {
+  return {
+    baseUrl,
+    api: "openai-completions",
+    models: [
+      {
+        id: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        name: "Llama 3.2 3B Instruct (Q4_K_M)",
+        reasoning: false,
+        input: ["text"],
+        cost: OLLAMA_DEFAULT_COST,
+        contextWindow: 8192,
+        maxTokens: 4096,
+      },
+    ],
+  };
+}
+
 export function resolveImplicitProviders(params: { agentDir: string }): ModelsConfig["providers"] {
   const providers: Record<string, ProviderConfig> = {};
   const authStore = ensureAuthProfileStore(params.agentDir, {
@@ -217,6 +269,24 @@ export function resolveImplicitProviders(params: { agentDir: string }): ModelsCo
     resolveApiKeyFromProfiles({ provider: "synthetic", store: authStore });
   if (syntheticKey) {
     providers.synthetic = { ...buildSyntheticProvider(), apiKey: syntheticKey };
+  }
+
+  const ollamaUrl = process.env.OLLAMA_BASE_URL;
+  if (ollamaUrl) {
+    const key =
+      resolveEnvApiKeyVarName("ollama") ??
+      resolveApiKeyFromProfiles({ provider: "ollama", store: authStore }) ??
+      "ollama";
+    providers.ollama = { ...buildOllamaProvider(ollamaUrl), apiKey: key };
+  }
+
+  const llamaCppUrl = process.env.LLAMA_CPP_BASE_URL;
+  if (llamaCppUrl) {
+    const key =
+      resolveEnvApiKeyVarName("llama-cpp") ??
+      resolveApiKeyFromProfiles({ provider: "llama-cpp", store: authStore }) ??
+      "llama-cpp";
+    providers["llama-cpp"] = { ...buildLlamaCppProvider(llamaCppUrl), apiKey: key };
   }
 
   return providers;

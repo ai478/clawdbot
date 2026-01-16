@@ -28,7 +28,38 @@ export function parseLsofOutput(output: string): PortProcess[] {
   return results;
 }
 
+function listWindowsPortListeners(port: number): PortProcess[] {
+  try {
+    const out = execFileSync("netstat", ["-ano", "-p", "tcp"], { encoding: "utf-8" });
+    const lines = out.split(/\r?\n/);
+    const results: PortProcess[] = [];
+    const portToken = `:${port}`;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // Windows netstat uses "LISTENING"
+      if (!trimmed.toLowerCase().includes("listen")) continue;
+      if (!trimmed.includes(portToken)) continue;
+      const parts = trimmed.split(/\s+/);
+      // Proto Local Address Foreign Address State PID
+      // TCP   0.0.0.0:18789 0.0.0.0:0       LISTENING 1234
+      const pidRaw = parts[parts.length - 1];
+      const pid = parseInt(pidRaw, 10);
+      if (Number.isFinite(pid)) {
+        results.push({ pid });
+      }
+    }
+    return results;
+  } catch (err) {
+    // If netstat fails, we can't find listeners.
+    return [];
+  }
+}
+
 export function listPortListeners(port: number): PortProcess[] {
+  if (process.platform === "win32") {
+    return listWindowsPortListeners(port);
+  }
   try {
     const out = execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-FpFc"], {
       encoding: "utf-8",

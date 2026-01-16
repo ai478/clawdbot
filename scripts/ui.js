@@ -25,8 +25,8 @@ function which(cmd) {
     const extensions =
       process.platform === "win32"
         ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM")
-            .split(";")
-            .filter(Boolean)
+          .split(";")
+          .filter(Boolean)
         : [""];
     for (const entry of paths) {
       for (const ext of extensions) {
@@ -56,6 +56,7 @@ function run(cmd, args) {
   const child = spawn(cmd, args, {
     cwd: uiDir,
     stdio: "inherit",
+    shell: true,
     env: process.env,
   });
   child.on("exit", (code, signal) => {
@@ -68,6 +69,7 @@ function runSync(cmd, args, envOverride) {
   const result = spawnSync(cmd, args, {
     cwd: uiDir,
     stdio: "inherit",
+    shell: true,
     env: envOverride ?? process.env,
   });
   if (result.signal) process.exit(1);
