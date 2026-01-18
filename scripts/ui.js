@@ -62,10 +62,20 @@ function resolveRunner() {
 }
 
 function run(cmd, args) {
-  const child = spawn(cmd, args, {
+  // On Windows, if cmd doesn't have an extension, try with .cmd
+  let finalCmd = cmd;
+  if (process.platform === "win32" && !path.extname(cmd)) {
+    const cmdPath = `${cmd}.cmd`;
+    if (fs.existsSync(cmdPath)) {
+      finalCmd = cmdPath;
+    }
+  }
+
+  const child = spawn(finalCmd, args, {
     cwd: uiDir,
     stdio: "inherit",
     env: process.env,
+    shell: process.platform === "win32", // Use shell on Windows
   });
   child.on("exit", (code, signal) => {
     if (signal) process.exit(1);
@@ -74,10 +84,20 @@ function run(cmd, args) {
 }
 
 function runSync(cmd, args, envOverride) {
-  const result = spawnSync(cmd, args, {
+  // On Windows, if cmd doesn't have an extension, try with .cmd
+  let finalCmd = cmd;
+  if (process.platform === "win32" && !path.extname(cmd)) {
+    const cmdPath = `${cmd}.cmd`;
+    if (fs.existsSync(cmdPath)) {
+      finalCmd = cmdPath;
+    }
+  }
+
+  const result = spawnSync(finalCmd, args, {
     cwd: uiDir,
     stdio: "inherit",
     env: envOverride ?? process.env,
+    shell: process.platform === "win32", // Use shell on Windows
   });
   if (result.signal) process.exit(1);
   if ((result.status ?? 1) !== 0) process.exit(result.status ?? 1);

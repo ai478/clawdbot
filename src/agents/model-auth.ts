@@ -159,6 +159,8 @@ export function resolveEnvApiKey(provider: string): EnvApiKeyResult | null {
     synthetic: "SYNTHETIC_API_KEY",
     mistral: "MISTRAL_API_KEY",
     opencode: "OPENCODE_API_KEY",
+    "llama-cpp": "LLAMA_CPP_API_KEY",
+    ollama: "OLLAMA_API_KEY",
   };
   const envVar = envMap[normalized];
   if (!envVar) return null;
