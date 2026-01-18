@@ -1,6 +1,6 @@
 import { loadConfig, loadConfigSchema } from "./controllers/config";
 import { loadCronJobs, loadCronStatus } from "./controllers/cron";
-import { loadChannels } from "./controllers/connections";
+import { loadChannels } from "./controllers/channels";
 import { loadDebug } from "./controllers/debug";
 import { loadLogs } from "./controllers/logs";
 import { loadNodes } from "./controllers/nodes";
@@ -64,7 +64,7 @@ export function applySettingsFromUrl(host: SettingsHost) {
 
   if (tokenRaw != null) {
     const token = tokenRaw.trim();
-    if (token && !host.settings.token) {
+    if (token && token !== host.settings.token) {
       applySettings(host, { ...host.settings, token });
     }
     params.delete("token");
@@ -125,7 +125,7 @@ export function setTheme(
 
 export async function refreshActiveTab(host: SettingsHost) {
   if (host.tab === "overview") await loadOverview(host);
-  if (host.tab === "connections") await loadConnections(host);
+  if (host.tab === "channels") await loadChannelsTab(host);
   if (host.tab === "instances") await loadPresence(host as unknown as ClawdbotApp);
   if (host.tab === "sessions") await loadSessions(host as unknown as ClawdbotApp);
   if (host.tab === "cron") await loadCron(host);
@@ -256,9 +256,10 @@ export async function loadOverview(host: SettingsHost) {
   ]);
 }
 
-export async function loadConnections(host: SettingsHost) {
+export async function loadChannelsTab(host: SettingsHost) {
   await Promise.all([
     loadChannels(host as unknown as ClawdbotApp, true),
+    loadConfigSchema(host as unknown as ClawdbotApp),
     loadConfig(host as unknown as ClawdbotApp),
   ]);
 }

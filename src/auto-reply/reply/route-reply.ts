@@ -27,8 +27,8 @@ export type RouteReplyParams = {
   sessionKey?: string;
   /** Provider account id (multi-account). */
   accountId?: string;
-  /** Telegram message thread id (forum topics). */
-  threadId?: number;
+  /** Thread id for replies (Telegram topic id or Matrix thread event id). */
+  threadId?: string | number;
   /** Config for provider-specific settings. */
   cfg: ClawdbotConfig;
   /** Optional abort signal for cooperative cancellation. */
@@ -113,7 +113,16 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
       replyToId: replyToId ?? null,
       threadId: threadId ?? null,
       abortSignal,
+      mirror: params.sessionKey
+        ? {
+            sessionKey: params.sessionKey,
+            agentId: resolveSessionAgentId({ sessionKey: params.sessionKey, config: cfg }),
+            text,
+            mediaUrls,
+          }
+        : undefined,
     });
+
     const last = results.at(-1);
     return { ok: true, messageId: last?.messageId };
   } catch (err) {

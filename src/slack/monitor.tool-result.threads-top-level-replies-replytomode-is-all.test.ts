@@ -31,6 +31,16 @@ vi.mock("../auto-reply/reply.js", () => ({
   getReplyFromConfig: (...args: unknown[]) => replyMock(...args),
 }));
 
+vi.mock("./resolve-channels.js", () => ({
+  resolveSlackChannelAllowlist: async ({ entries }: { entries: string[] }) =>
+    entries.map((input) => ({ input, resolved: false })),
+}));
+
+vi.mock("./resolve-users.js", () => ({
+  resolveSlackUserAllowlist: async ({ entries }: { entries: string[] }) =>
+    entries.map((input) => ({ input, resolved: false })),
+}));
+
 vi.mock("./send.js", () => ({
   sendMessageSlack: (...args: unknown[]) => sendMock(...args),
 }));
@@ -44,6 +54,7 @@ vi.mock("../config/sessions.js", () => ({
   resolveStorePath: vi.fn(() => "/tmp/clawdbot-sessions.json"),
   updateLastRoute: (...args: unknown[]) => updateLastRouteMock(...args),
   resolveSessionKey: vi.fn(),
+  recordSessionMetaFromInbound: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@slack/bolt", () => {
@@ -97,6 +108,7 @@ async function waitForEvent(name: string) {
 
 beforeEach(() => {
   resetInboundDedupe();
+  getSlackHandlers()?.clear();
   config = {
     messages: {
       responsePrefix: "PFX",
@@ -202,10 +214,60 @@ describe("monitorSlackProvider tool results", () => {
       ParentSessionKey?: string;
     };
     expect(ctx.SessionKey).toBe("agent:main:main:thread:123");
-    expect(ctx.ParentSessionKey).toBe("agent:main:main");
+    expect(ctx.ParentSessionKey).toBeUndefined();
   });
 
-  it("forks thread sessions and injects starter context", async () => {
+  it("keeps thread parent inheritance opt-in", async () => {
+    replyMock.mockResolvedValue({ text: "thread reply" });
+
+    config = {
+      messages: { responsePrefix: "PFX" },
+      channels: {
+        slack: {
+          dm: { enabled: true, policy: "open", allowFrom: ["*"] },
+          channels: { C1: { allow: true, requireMention: false } },
+          thread: { inheritParent: true },
+        },
+      },
+    };
+
+    const controller = new AbortController();
+    const run = monitorSlackProvider({
+      botToken: "bot-token",
+      appToken: "app-token",
+      abortSignal: controller.signal,
+    });
+
+    await waitForEvent("message");
+    const handler = getSlackHandlers()?.get("message");
+    if (!handler) throw new Error("Slack message handler not registered");
+
+    await handler({
+      event: {
+        type: "message",
+        user: "U1",
+        text: "hello",
+        ts: "123",
+        thread_ts: "111.222",
+        channel: "C1",
+        channel_type: "channel",
+      },
+    });
+
+    await flush();
+    controller.abort();
+    await run;
+
+    expect(replyMock).toHaveBeenCalledTimes(1);
+    const ctx = replyMock.mock.calls[0]?.[0] as {
+      SessionKey?: string;
+      ParentSessionKey?: string;
+    };
+    expect(ctx.SessionKey).toBe("agent:main:slack:channel:C1:thread:111.222");
+    expect(ctx.ParentSessionKey).toBe("agent:main:slack:channel:C1");
+  });
+
+  it("injects starter context for thread replies", async () => {
     replyMock.mockResolvedValue({ text: "ok" });
 
     const client = getSlackClient();
@@ -265,7 +327,7 @@ describe("monitorSlackProvider tool results", () => {
       ThreadLabel?: string;
     };
     expect(ctx.SessionKey).toBe("agent:main:slack:channel:C1:thread:111.222");
-    expect(ctx.ParentSessionKey).toBe("agent:main:slack:channel:C1");
+    expect(ctx.ParentSessionKey).toBeUndefined();
     expect(ctx.ThreadStarterBody).toContain("starter message");
     expect(ctx.ThreadLabel).toContain("Slack thread #general");
   });
@@ -329,7 +391,7 @@ describe("monitorSlackProvider tool results", () => {
       ParentSessionKey?: string;
     };
     expect(ctx.SessionKey).toBe("agent:support:slack:channel:C1:thread:111.222");
-    expect(ctx.ParentSessionKey).toBe("agent:support:slack:channel:C1");
+    expect(ctx.ParentSessionKey).toBeUndefined();
   });
 
   it("keeps replies in channel root when message is not threaded (replyToMode off)", async () => {

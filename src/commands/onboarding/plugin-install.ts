@@ -4,6 +4,7 @@ import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/ag
 import type { ChannelPluginCatalogEntry } from "../../channels/plugins/catalog.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 import { createSubsystemLogger } from "../../logging.js";
+import { recordPluginInstall } from "../../plugins/installs.js";
 import { loadClawdbotPlugins } from "../../plugins/loader.js";
 import { installPluginFromNpmSpec } from "../../plugins/install.js";
 import type { RuntimeEnv } from "../../runtime.js";
@@ -16,7 +17,24 @@ type InstallResult = {
   installed: boolean;
 };
 
-function resolveLocalPath(entry: ChannelPluginCatalogEntry, workspaceDir?: string): string | null {
+function hasGitWorkspace(workspaceDir?: string): boolean {
+  const candidates = new Set<string>();
+  candidates.add(path.join(process.cwd(), ".git"));
+  if (workspaceDir && workspaceDir !== process.cwd()) {
+    candidates.add(path.join(workspaceDir, ".git"));
+  }
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return true;
+  }
+  return false;
+}
+
+function resolveLocalPath(
+  entry: ChannelPluginCatalogEntry,
+  workspaceDir: string | undefined,
+  allowLocal: boolean,
+): string | null {
+  if (!allowLocal) return null;
   const raw = entry.install.localPath?.trim();
   if (!raw) return null;
   const candidates = new Set<string>();
@@ -113,7 +131,8 @@ export async function ensureOnboardingPluginInstalled(params: {
 }): Promise<InstallResult> {
   const { entry, prompter, runtime, workspaceDir } = params;
   let next = params.cfg;
-  const localPath = resolveLocalPath(entry, workspaceDir);
+  const allowLocal = hasGitWorkspace(workspaceDir);
+  const localPath = resolveLocalPath(entry, workspaceDir, allowLocal);
   const choice = await promptInstallChoice({
     entry,
     localPath,
@@ -140,6 +159,13 @@ export async function ensureOnboardingPluginInstalled(params: {
 
   if (result.ok) {
     next = ensurePluginEnabled(next, result.pluginId);
+    next = recordPluginInstall(next, {
+      pluginId: result.pluginId,
+      source: "npm",
+      spec: entry.install.npmSpec,
+      installPath: result.targetDir,
+      version: result.version,
+    });
     return { cfg: next, installed: true };
   }
 

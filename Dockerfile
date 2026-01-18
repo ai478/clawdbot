@@ -107,6 +107,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY --chown=node:node . .
 RUN pnpm build
+# Force pnpm for UI build (Bun may fail on ARM/Synology architectures)
+ENV CLAWDBOT_PREFER_PNPM=1
 RUN pnpm ui:install
 RUN pnpm ui:build
 

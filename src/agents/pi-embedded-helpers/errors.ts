@@ -32,6 +32,41 @@ export function isCompactionFailureError(errorMessage?: string): boolean {
 
 const ERROR_PAYLOAD_PREFIX_RE =
   /^(?:error|api\s*error|apierror|openai\s*error|anthropic\s*error|gateway\s*error)[:\s-]+/i;
+const FINAL_TAG_RE = /<\s*\/?\s*final\s*>/gi;
+const ERROR_PREFIX_RE =
+  /^(?:error|api\s*error|openai\s*error|anthropic\s*error|gateway\s*error|request failed|failed|exception)[:\s-]+/i;
+const HTTP_STATUS_PREFIX_RE = /^(?:http\s*)?(\d{3})\s+(.+)$/i;
+const HTTP_ERROR_HINTS = [
+  "error",
+  "bad request",
+  "not found",
+  "unauthorized",
+  "forbidden",
+  "internal server",
+  "service unavailable",
+  "gateway",
+  "rate limit",
+  "overloaded",
+  "timeout",
+  "timed out",
+  "invalid",
+  "too many requests",
+  "permission",
+];
+
+function stripFinalTagsFromText(text: string): string {
+  if (!text) return text;
+  return text.replace(FINAL_TAG_RE, "");
+}
+
+function isLikelyHttpErrorText(raw: string): boolean {
+  const match = raw.match(HTTP_STATUS_PREFIX_RE);
+  if (!match) return false;
+  const code = Number(match[1]);
+  if (!Number.isFinite(code) || code < 400) return false;
+  const message = match[2].toLowerCase();
+  return HTTP_ERROR_HINTS.some((hint) => message.includes(hint));
+}
 
 type ErrorPayload = Record<string, unknown>;
 
@@ -100,12 +135,79 @@ export function isRawApiErrorPayload(raw?: string): boolean {
   return getApiErrorPayloadFingerprint(raw) !== null;
 }
 
+export type ApiErrorInfo = {
+  httpCode?: string;
+  type?: string;
+  message?: string;
+  requestId?: string;
+};
+
+export function parseApiErrorInfo(raw?: string): ApiErrorInfo | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  let httpCode: string | undefined;
+  let candidate = trimmed;
+
+  const httpPrefixMatch = candidate.match(/^(\d{3})\s+(.+)$/s);
+  if (httpPrefixMatch) {
+    httpCode = httpPrefixMatch[1];
+    candidate = httpPrefixMatch[2].trim();
+  }
+
+  const payload = parseApiErrorPayload(candidate);
+  if (!payload) return null;
+
+  const requestId =
+    typeof payload.request_id === "string"
+      ? payload.request_id
+      : typeof payload.requestId === "string"
+        ? payload.requestId
+        : undefined;
+
+  const topType = typeof payload.type === "string" ? payload.type : undefined;
+  const topMessage = typeof payload.message === "string" ? payload.message : undefined;
+
+  let errType: string | undefined;
+  let errMessage: string | undefined;
+  if (payload.error && typeof payload.error === "object" && !Array.isArray(payload.error)) {
+    const err = payload.error as Record<string, unknown>;
+    if (typeof err.type === "string") errType = err.type;
+    if (typeof err.code === "string" && !errType) errType = err.code;
+    if (typeof err.message === "string") errMessage = err.message;
+  }
+
+  return {
+    httpCode,
+    type: errType ?? topType,
+    message: errMessage ?? topMessage,
+    requestId,
+  };
+}
+
+export function formatRawAssistantErrorForUi(raw?: string): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return "LLM request failed with an unknown error.";
+
+  const info = parseApiErrorInfo(trimmed);
+  if (info?.message) {
+    const prefix = info.httpCode ? `HTTP ${info.httpCode}` : "LLM error";
+    const type = info.type ? ` ${info.type}` : "";
+    const requestId = info.requestId ? ` (request_id: ${info.requestId})` : "";
+    return `${prefix}${type}: ${info.message}${requestId}`;
+  }
+
+  return trimmed.length > 600 ? `${trimmed.slice(0, 600)}…` : trimmed;
+}
+
 export function formatAssistantErrorText(
   msg: AssistantMessage,
   opts?: { cfg?: ClawdbotConfig; sessionKey?: string },
 ): string | undefined {
-  if (msg.stopReason !== "error") return undefined;
+  // Also format errors if errorMessage is present, even if stopReason isn't "error"
   const raw = (msg.errorMessage ?? "").trim();
+  if (msg.stopReason !== "error" && !raw) return undefined;
   if (!raw) return "LLM request failed with an unknown error.";
 
   const unknownTool =
@@ -127,7 +229,12 @@ export function formatAssistantErrorText(
     );
   }
 
-  if (/incorrect role information|roles must alternate/i.test(raw)) {
+  // Catch role ordering errors - including JSON-wrapped and "400" prefix variants
+  if (
+    /incorrect role information|roles must alternate|400.*role|"message".*role.*information/i.test(
+      raw,
+    )
+  ) {
     return (
       "Message ordering conflict - please try again. " +
       "If this persists, use /new to start a fresh session."
@@ -147,7 +254,48 @@ export function formatAssistantErrorText(
     return "The AI service returned an error. Please try again.";
   }
 
+  // Never return raw unhandled errors - log for debugging but return safe message
+  if (raw.length > 600) {
+    console.warn("[formatAssistantErrorText] Long error truncated:", raw.slice(0, 200));
+  }
   return raw.length > 600 ? `${raw.slice(0, 600)}…` : raw;
+}
+
+export function sanitizeUserFacingText(text: string): string {
+  if (!text) return text;
+  const stripped = stripFinalTagsFromText(text);
+  const trimmed = stripped.trim();
+  if (!trimmed) return stripped;
+
+  if (/incorrect role information|roles must alternate/i.test(trimmed)) {
+    return (
+      "Message ordering conflict - please try again. " +
+      "If this persists, use /new to start a fresh session."
+    );
+  }
+
+  if (isContextOverflowError(trimmed)) {
+    return (
+      "Context overflow: prompt too large for the model. " +
+      "Try again with less input or a larger-context model."
+    );
+  }
+
+  if (isRawApiErrorPayload(trimmed) || isLikelyHttpErrorText(trimmed)) {
+    return "The AI service returned an error. Please try again.";
+  }
+
+  if (ERROR_PREFIX_RE.test(trimmed)) {
+    if (isOverloadedErrorMessage(trimmed) || isRateLimitErrorMessage(trimmed)) {
+      return "The AI service is temporarily overloaded. Please try again in a moment.";
+    }
+    if (isTimeoutErrorMessage(trimmed)) {
+      return "LLM request timed out.";
+    }
+    return "The AI service returned an error. Please try again.";
+  }
+
+  return stripped;
 }
 
 export function isRateLimitAssistantError(msg: AssistantMessage | undefined): boolean {

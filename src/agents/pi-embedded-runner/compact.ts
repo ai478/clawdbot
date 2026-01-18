@@ -8,21 +8,21 @@ import type { ReasoningLevel, ThinkLevel } from "../../auto-reply/thinking.js";
 import { resolveChannelCapabilities } from "../../config/channel-capabilities.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 import { getMachineDisplayName } from "../../infra/machine-name.js";
+import { resolveTelegramInlineButtonsScope } from "../../telegram/inline-buttons.js";
 import { type enqueueCommand, enqueueCommandInLane } from "../../process/command-queue.js";
 import { normalizeMessageChannel } from "../../utils/message-channel.js";
+import { isSubagentSessionKey } from "../../routing/session-key.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { resolveUserPath } from "../../utils.js";
 import { resolveClawdbotAgentDir } from "../agent-paths.js";
 import { resolveSessionAgentIds } from "../agent-scope.js";
+import { makeBootstrapWarn, resolveBootstrapContextForRun } from "../bootstrap-files.js";
 import type { ExecElevatedDefaults } from "../bash-tools.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../defaults.js";
 import { getApiKeyForModel, resolveModelAuthMode } from "../model-auth.js";
 import { ensureClawdbotModelsJson } from "../models-config.js";
 import {
-  buildBootstrapContextFiles,
-  type EmbeddedContextFile,
   ensureSessionHeader,
-  resolveBootstrapMaxChars,
   validateAnthropicTurns,
   validateGeminiTurns,
 } from "../pi-embedded-helpers.js";
@@ -41,9 +41,12 @@ import {
   resolveSkillsPromptForRun,
   type SkillSnapshot,
 } from "../skills.js";
-import { filterBootstrapFilesForSession, loadWorkspaceBootstrapFiles } from "../workspace.js";
 import { buildEmbeddedExtensionPaths } from "./extensions.js";
-import { logToolSchemasForGoogle, sanitizeSessionHistory } from "./google.js";
+import {
+  logToolSchemasForGoogle,
+  sanitizeSessionHistory,
+  sanitizeToolsForGoogle,
+} from "./google.js";
 import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "./history.js";
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
 import { log } from "./logger.js";
@@ -53,13 +56,8 @@ import { prewarmSessionFile, trackSessionManagerAccess } from "./session-manager
 import { buildEmbeddedSystemPrompt, createSystemPromptOverride } from "./system-prompt.js";
 import { splitSdkTools } from "./tool-split.js";
 import type { EmbeddedPiCompactResult } from "./types.js";
-import {
-  describeUnknownError,
-  formatUserTime,
-  mapThinkingLevel,
-  resolveExecToolDefaults,
-  resolveUserTimezone,
-} from "./utils.js";
+import { formatUserTime, resolveUserTimeFormat, resolveUserTimezone } from "../date-time.js";
+import { describeUnknownError, mapThinkingLevel, resolveExecToolDefaults } from "./utils.js";
 
 export async function compactEmbeddedPiSession(params: {
   sessionId: string;
@@ -177,17 +175,16 @@ export async function compactEmbeddedPiSession(params: {
           workspaceDir: effectiveWorkspace,
         });
 
-        const bootstrapFiles = filterBootstrapFilesForSession(
-          await loadWorkspaceBootstrapFiles(effectiveWorkspace),
-          params.sessionKey ?? params.sessionId,
-        );
         const sessionLabel = params.sessionKey ?? params.sessionId;
-        const contextFiles: EmbeddedContextFile[] = buildBootstrapContextFiles(bootstrapFiles, {
-          maxChars: resolveBootstrapMaxChars(params.config),
-          warn: (message) => log.warn(`${message} (sessionKey=${sessionLabel})`),
+        const { contextFiles } = await resolveBootstrapContextForRun({
+          workspaceDir: effectiveWorkspace,
+          config: params.config,
+          sessionKey: params.sessionKey,
+          sessionId: params.sessionId,
+          warn: makeBootstrapWarn({ sessionLabel, warn: (message) => log.warn(message) }),
         });
         const runAbortController = new AbortController();
-        const tools = createClawdbotCodingTools({
+        const toolsRaw = createClawdbotCodingTools({
           exec: {
             ...resolveExecToolDefaults(params.config),
             elevated: params.bashElevated,
@@ -204,18 +201,35 @@ export async function compactEmbeddedPiSession(params: {
           modelId,
           modelAuthMode: resolveModelAuthMode(model.provider, params.config),
         });
+        const tools = sanitizeToolsForGoogle({ tools: toolsRaw, provider });
         logToolSchemasForGoogle({ tools, provider });
         const machineName = await getMachineDisplayName();
         const runtimeChannel = normalizeMessageChannel(
           params.messageChannel ?? params.messageProvider,
         );
-        const runtimeCapabilities = runtimeChannel
+        let runtimeCapabilities = runtimeChannel
           ? (resolveChannelCapabilities({
               cfg: params.config,
               channel: runtimeChannel,
               accountId: params.agentAccountId,
             }) ?? [])
           : undefined;
+        if (runtimeChannel === "telegram" && params.config) {
+          const inlineButtonsScope = resolveTelegramInlineButtonsScope({
+            cfg: params.config,
+            accountId: params.agentAccountId ?? undefined,
+          });
+          if (inlineButtonsScope !== "off") {
+            if (!runtimeCapabilities) runtimeCapabilities = [];
+            if (
+              !runtimeCapabilities.some(
+                (cap) => String(cap).trim().toLowerCase() === "inlinebuttons",
+              )
+            ) {
+              runtimeCapabilities.push("inlineButtons");
+            }
+          }
+        }
         const runtimeInfo = {
           host: machineName,
           os: `${os.type()} ${os.release()}`,
@@ -228,12 +242,14 @@ export async function compactEmbeddedPiSession(params: {
         const sandboxInfo = buildEmbeddedSandboxInfo(sandbox, params.bashElevated);
         const reasoningTagHint = isReasoningTagProvider(provider);
         const userTimezone = resolveUserTimezone(params.config?.agents?.defaults?.userTimezone);
-        const userTime = formatUserTime(new Date(), userTimezone);
+        const userTimeFormat = resolveUserTimeFormat(params.config?.agents?.defaults?.timeFormat);
+        const userTime = formatUserTime(new Date(), userTimezone, userTimeFormat);
         const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({
           sessionKey: params.sessionKey,
           config: params.config,
         });
         const isDefaultAgent = sessionAgentId === defaultAgentId;
+        const promptMode = isSubagentSessionKey(params.sessionKey) ? "minimal" : "full";
         const appendPrompt = buildEmbeddedSystemPrompt({
           workspaceDir: effectiveWorkspace,
           defaultThinkLevel: params.thinkLevel,
@@ -245,12 +261,14 @@ export async function compactEmbeddedPiSession(params: {
             ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)
             : undefined,
           skillsPrompt,
+          promptMode,
           runtimeInfo,
           sandboxInfo,
           tools,
           modelAliasLines: buildModelAliasLines(params.config),
           userTimezone,
           userTime,
+          userTimeFormat,
           contextFiles,
         });
         const systemPrompt = createSystemPromptOverride(appendPrompt);
@@ -302,6 +320,8 @@ export async function compactEmbeddedPiSession(params: {
             const prior = await sanitizeSessionHistory({
               messages: session.messages,
               modelApi: model.api,
+              modelId,
+              provider,
               sessionManager,
               sessionId: params.sessionId,
             });

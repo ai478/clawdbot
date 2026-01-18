@@ -1,7 +1,7 @@
 import type { NormalizedUsage } from "../../agents/usage.js";
 import { getChannelDock } from "../../channels/dock.js";
 import type { ChannelThreadingToolContext } from "../../channels/plugins/types.js";
-import { normalizeChannelId } from "../../channels/plugins/index.js";
+import { normalizeChannelId } from "../../channels/registry.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { estimateUsageCost, formatTokenCount, formatUsd } from "../../utils/usage-format.js";
@@ -26,8 +26,13 @@ export function buildThreadingToolContext(params: {
   const dock = getChannelDock(provider);
   if (!dock?.threading?.buildToolContext) return {};
   // WhatsApp context isolation keys off conversation id, not the bot's own number.
-  const threadingTo = provider === "whatsapp" ? (sessionCtx.From ?? sessionCtx.To) : sessionCtx.To;
-  return (
+  const threadingTo =
+    provider === "whatsapp"
+      ? (sessionCtx.From ?? sessionCtx.To)
+      : provider === "imessage" && sessionCtx.ChatType === "direct"
+        ? (sessionCtx.From ?? sessionCtx.To)
+        : sessionCtx.To;
+  const context =
     dock.threading.buildToolContext({
       cfg: config,
       accountId: sessionCtx.AccountId,
@@ -36,10 +41,14 @@ export function buildThreadingToolContext(params: {
         To: threadingTo,
         ReplyToId: sessionCtx.ReplyToId,
         ThreadLabel: sessionCtx.ThreadLabel,
+        MessageThreadId: sessionCtx.MessageThreadId,
       },
       hasRepliedRef,
-    }) ?? {}
-  );
+    }) ?? {};
+  return {
+    ...context,
+    currentChannelProvider: provider,
+  };
 }
 
 export const isBunFetchSocketError = (message?: string) =>

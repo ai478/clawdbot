@@ -11,7 +11,7 @@ import {
   loadSessionStore,
   resolveSessionKey,
   resolveStorePath,
-  saveSessionStore,
+  updateSessionStore,
 } from "../../config/sessions.js";
 import { emitHeartbeatEvent } from "../../infra/heartbeat-events.js";
 import { getChildLogger } from "../../logging.js";
@@ -72,7 +72,14 @@ export async function runWebHeartbeatOnce(opts: {
       sessionId,
       updatedAt: Date.now(),
     };
-    await saveSessionStore(storePath, store);
+    await updateSessionStore(storePath, (nextStore) => {
+      const nextCurrent = nextStore[sessionKey] ?? current;
+      nextStore[sessionKey] = {
+        ...nextCurrent,
+        sessionId,
+        updatedAt: Date.now(),
+      };
+    });
   }
   const sessionSnapshot = getSessionSnapshot(cfg, to, true);
   if (verbose) {
@@ -82,7 +89,11 @@ export async function runWebHeartbeatOnce(opts: {
         sessionKey: sessionSnapshot.key,
         sessionId: sessionId ?? sessionSnapshot.entry?.sessionId ?? null,
         sessionFresh: sessionSnapshot.fresh,
-        idleMinutes: sessionSnapshot.idleMinutes,
+        resetMode: sessionSnapshot.resetPolicy.mode,
+        resetAtHour: sessionSnapshot.resetPolicy.atHour,
+        idleMinutes: sessionSnapshot.resetPolicy.idleMinutes ?? null,
+        dailyResetAt: sessionSnapshot.dailyResetAt ?? null,
+        idleExpiresAt: sessionSnapshot.idleExpiresAt ?? null,
       },
       "heartbeat session snapshot",
     );
@@ -163,7 +174,14 @@ export async function runWebHeartbeatOnce(opts: {
       const store = loadSessionStore(storePath);
       if (sessionSnapshot.entry && store[sessionSnapshot.key]) {
         store[sessionSnapshot.key].updatedAt = sessionSnapshot.entry.updatedAt;
-        await saveSessionStore(storePath, store);
+        await updateSessionStore(storePath, (nextStore) => {
+          const nextEntry = nextStore[sessionSnapshot.key];
+          if (!nextEntry) return;
+          nextStore[sessionSnapshot.key] = {
+            ...nextEntry,
+            updatedAt: sessionSnapshot.entry.updatedAt,
+          };
+        });
       }
 
       heartbeatLogger.info(

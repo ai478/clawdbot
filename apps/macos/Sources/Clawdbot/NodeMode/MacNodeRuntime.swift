@@ -7,6 +7,8 @@ actor MacNodeRuntime {
     private let cameraCapture = CameraCaptureService()
     private let makeMainActorServices: () async -> any MacNodeRuntimeMainActorServices
     private var cachedMainActorServices: (any MacNodeRuntimeMainActorServices)?
+    private var mainSessionKey: String = "main"
+    private var eventSender: (@Sendable (String, String?) async -> Void)?
 
     init(
         makeMainActorServices: @escaping () async -> any MacNodeRuntimeMainActorServices = {
@@ -14,6 +16,16 @@ actor MacNodeRuntime {
         })
     {
         self.makeMainActorServices = makeMainActorServices
+    }
+
+    func updateMainSessionKey(_ sessionKey: String) {
+        let trimmed = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        self.mainSessionKey = trimmed
+    }
+
+    func setEventSender(_ sender: (@Sendable (String, String?) async -> Void)?) {
+        self.eventSender = sender
     }
 
     func handleInvoke(_ req: BridgeInvokeRequest) async -> BridgeInvokeResponse {
@@ -48,6 +60,8 @@ actor MacNodeRuntime {
                 return try await self.handleScreenRecordInvoke(req)
             case ClawdbotSystemCommand.run.rawValue:
                 return try await self.handleSystemRun(req)
+            case ClawdbotSystemCommand.which.rawValue:
+                return try await self.handleSystemWhich(req)
             case ClawdbotSystemCommand.notify.rawValue:
                 return try await self.handleSystemNotify(req)
             default:
@@ -72,28 +86,32 @@ actor MacNodeRuntime {
             let placement = params.placement.map {
                 CanvasPlacement(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
             }
+            let sessionKey = self.mainSessionKey
             try await MainActor.run {
                 _ = try CanvasManager.shared.showDetailed(
-                    sessionKey: "main",
+                    sessionKey: sessionKey,
                     target: url,
                     placement: placement)
             }
             return BridgeInvokeResponse(id: req.id, ok: true)
         case ClawdbotCanvasCommand.hide.rawValue:
+            let sessionKey = self.mainSessionKey
             await MainActor.run {
-                CanvasManager.shared.hide(sessionKey: "main")
+                CanvasManager.shared.hide(sessionKey: sessionKey)
             }
             return BridgeInvokeResponse(id: req.id, ok: true)
         case ClawdbotCanvasCommand.navigate.rawValue:
             let params = try Self.decodeParams(ClawdbotCanvasNavigateParams.self, from: req.paramsJSON)
+            let sessionKey = self.mainSessionKey
             try await MainActor.run {
-                _ = try CanvasManager.shared.show(sessionKey: "main", path: params.url)
+                _ = try CanvasManager.shared.show(sessionKey: sessionKey, path: params.url)
             }
             return BridgeInvokeResponse(id: req.id, ok: true)
         case ClawdbotCanvasCommand.evalJS.rawValue:
             let params = try Self.decodeParams(ClawdbotCanvasEvalParams.self, from: req.paramsJSON)
+            let sessionKey = self.mainSessionKey
             let result = try await CanvasManager.shared.eval(
-                sessionKey: "main",
+                sessionKey: sessionKey,
                 javaScript: params.javaScript)
             let payload = try Self.encodePayload(["result": result] as [String: String])
             return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: payload)
@@ -109,7 +127,8 @@ actor MacNodeRuntime {
             }()
             let quality = params?.quality ?? 0.9
 
-            let path = try await CanvasManager.shared.snapshot(sessionKey: "main", outPath: nil)
+            let sessionKey = self.mainSessionKey
+            let path = try await CanvasManager.shared.snapshot(sessionKey: sessionKey, outPath: nil)
             defer { try? FileManager.default.removeItem(atPath: path) }
             let data = try Data(contentsOf: URL(fileURLWithPath: path))
             guard let image = NSImage(data: data) else {
@@ -319,7 +338,8 @@ actor MacNodeRuntime {
     private func handleA2UIReset(_ req: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
         try await self.ensureA2UIHost()
 
-        let json = try await CanvasManager.shared.eval(sessionKey: "main", javaScript: """
+        let sessionKey = self.mainSessionKey
+        let json = try await CanvasManager.shared.eval(sessionKey: sessionKey, javaScript: """
         (() => {
           if (!globalThis.clawdbotA2UI) return JSON.stringify({ ok: false, error: "missing clawdbotA2UI" });
           return JSON.stringify(globalThis.clawdbotA2UI.reset());
@@ -358,7 +378,8 @@ actor MacNodeRuntime {
           }
         })()
         """
-        let resultJSON = try await CanvasManager.shared.eval(sessionKey: "main", javaScript: js)
+        let sessionKey = self.mainSessionKey
+        let resultJSON = try await CanvasManager.shared.eval(sessionKey: sessionKey, javaScript: js)
         return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: resultJSON)
     }
 
@@ -369,8 +390,9 @@ actor MacNodeRuntime {
                 NSLocalizedDescriptionKey: "A2UI_HOST_NOT_CONFIGURED: gateway did not advertise canvas host",
             ])
         }
+        let sessionKey = self.mainSessionKey
         _ = try await MainActor.run {
-            try CanvasManager.shared.show(sessionKey: "main", path: a2uiUrl)
+            try CanvasManager.shared.show(sessionKey: sessionKey, path: a2uiUrl)
         }
         if await self.isA2UIReady(poll: true) { return }
         throw NSError(domain: "Canvas", code: 31, userInfo: [
@@ -389,7 +411,8 @@ actor MacNodeRuntime {
         let deadline = poll ? Date().addingTimeInterval(6.0) : Date()
         while true {
             do {
-                let ready = try await CanvasManager.shared.eval(sessionKey: "main", javaScript: """
+                let sessionKey = self.mainSessionKey
+                let ready = try await CanvasManager.shared.eval(sessionKey: sessionKey, javaScript: """
                 (() => String(Boolean(globalThis.clawdbotA2UI)))()
                 """)
                 let trimmed = ready.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -410,10 +433,129 @@ actor MacNodeRuntime {
             return Self.errorResponse(req, code: .invalidRequest, message: "INVALID_REQUEST: command required")
         }
 
+        let trimmedAgent = params.agentId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let agentId = trimmedAgent.isEmpty ? nil : trimmedAgent
+        let approvals = ExecApprovalsStore.resolve(agentId: agentId)
+        let security = approvals.agent.security
+        let ask = approvals.agent.ask
+        let askFallback = approvals.agent.askFallback
+        let autoAllowSkills = approvals.agent.autoAllowSkills
+        let sessionKey = (params.sessionKey?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? params.sessionKey!.trimmingCharacters(in: .whitespacesAndNewlines)
+            : self.mainSessionKey
+        let runId = UUID().uuidString
+        let resolution = ExecCommandResolution.resolve(command: command, cwd: params.cwd, env: params.env)
+        let allowlistMatch = security == .allowlist
+            ? ExecAllowlistMatcher.match(entries: approvals.allowlist, resolution: resolution)
+            : nil
+        let skillAllow: Bool
+        if autoAllowSkills, let name = resolution?.executableName {
+            let bins = await SkillBinsCache.shared.currentBins()
+            skillAllow = bins.contains(name)
+        } else {
+            skillAllow = false
+        }
+
+        if security == .deny {
+            await self.emitExecEvent(
+                "exec.denied",
+                payload: ExecEventPayload(
+                    sessionKey: sessionKey,
+                    runId: runId,
+                    host: "node",
+                    command: ExecCommandFormatter.displayString(for: command),
+                    reason: "security=deny"))
+            return Self.errorResponse(
+                req,
+                code: .unavailable,
+                message: "SYSTEM_RUN_DISABLED: security=deny")
+        }
+
+        let requiresAsk: Bool = {
+            if ask == .always { return true }
+            if ask == .onMiss && security == .allowlist && allowlistMatch == nil && !skillAllow { return true }
+            return false
+        }()
+
+        if requiresAsk {
+            let decision = await ExecApprovalsSocketClient.requestDecision(
+                socketPath: approvals.socketPath,
+                token: approvals.token,
+                request: ExecApprovalPromptRequest(
+                    command: ExecCommandFormatter.displayString(for: command),
+                    cwd: params.cwd,
+                    host: "node",
+                    security: security.rawValue,
+                    ask: ask.rawValue,
+                    agentId: agentId,
+                    resolvedPath: resolution?.resolvedPath))
+
+            switch decision {
+            case .deny?:
+                await self.emitExecEvent(
+                    "exec.denied",
+                    payload: ExecEventPayload(
+                        sessionKey: sessionKey,
+                        runId: runId,
+                        host: "node",
+                        command: ExecCommandFormatter.displayString(for: command),
+                        reason: "user-denied"))
+                return Self.errorResponse(
+                    req,
+                    code: .unavailable,
+                    message: "SYSTEM_RUN_DENIED: user denied")
+            case nil:
+                if askFallback == .deny || (askFallback == .allowlist && allowlistMatch == nil && !skillAllow) {
+                    await self.emitExecEvent(
+                        "exec.denied",
+                        payload: ExecEventPayload(
+                            sessionKey: sessionKey,
+                            runId: runId,
+                            host: "node",
+                            command: ExecCommandFormatter.displayString(for: command),
+                            reason: "approval-required"))
+                    return Self.errorResponse(
+                        req,
+                        code: .unavailable,
+                        message: "SYSTEM_RUN_DENIED: approval required")
+                }
+            case .allowAlways?:
+                if security == .allowlist {
+                    let pattern = resolution?.resolvedPath ??
+                        resolution?.rawExecutable ??
+                        command.first?.trimmingCharacters(in: .whitespacesAndNewlines) ??
+                        ""
+                    if !pattern.isEmpty {
+                        ExecApprovalsStore.addAllowlistEntry(agentId: agentId, pattern: pattern)
+                    }
+                }
+            case .allowOnce?:
+                break
+            }
+        }
+
+        if let match = allowlistMatch {
+            ExecApprovalsStore.recordAllowlistUse(
+                agentId: agentId,
+                pattern: match.pattern,
+                command: ExecCommandFormatter.displayString(for: command),
+                resolvedPath: resolution?.resolvedPath)
+        }
+
+        let env = Self.sanitizedEnv(params.env)
+
         if params.needsScreenRecording == true {
             let authorized = await PermissionManager
                 .status([.screenRecording])[.screenRecording] ?? false
             if !authorized {
+                await self.emitExecEvent(
+                    "exec.denied",
+                    payload: ExecEventPayload(
+                        sessionKey: sessionKey,
+                        runId: runId,
+                        host: "node",
+                        command: ExecCommandFormatter.displayString(for: command),
+                        reason: "permission:screenRecording"))
                 return Self.errorResponse(
                     req,
                     code: .unavailable,
@@ -422,11 +564,30 @@ actor MacNodeRuntime {
         }
 
         let timeoutSec = params.timeoutMs.flatMap { Double($0) / 1000.0 }
+        await self.emitExecEvent(
+            "exec.started",
+            payload: ExecEventPayload(
+                sessionKey: sessionKey,
+                runId: runId,
+                host: "node",
+                command: ExecCommandFormatter.displayString(for: command)))
         let result = await ShellExecutor.runDetailed(
             command: command,
             cwd: params.cwd,
-            env: params.env,
+            env: env,
             timeout: timeoutSec)
+        let combined = [result.stdout, result.stderr, result.errorMessage].filter { !$0.isEmpty }.joined(separator: "\n")
+        await self.emitExecEvent(
+            "exec.finished",
+            payload: ExecEventPayload(
+                sessionKey: sessionKey,
+                runId: runId,
+                host: "node",
+                command: ExecCommandFormatter.displayString(for: command),
+                exitCode: result.exitCode,
+                timedOut: result.timedOut,
+                success: result.success,
+                output: ExecEventPayload.truncateOutput(combined)))
 
         struct RunPayload: Encodable {
             var exitCode: Int?
@@ -445,6 +606,43 @@ actor MacNodeRuntime {
             stderr: result.stderr,
             error: result.errorMessage))
         return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: payload)
+    }
+
+    private func handleSystemWhich(_ req: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        let params = try Self.decodeParams(ClawdbotSystemWhichParams.self, from: req.paramsJSON)
+        let bins = params.bins
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !bins.isEmpty else {
+            return Self.errorResponse(req, code: .invalidRequest, message: "INVALID_REQUEST: bins required")
+        }
+
+        let searchPaths = CommandResolver.preferredPaths()
+        var matches: [String] = []
+        var paths: [String: String] = [:]
+        for bin in bins {
+            if let path = CommandResolver.findExecutable(named: bin, searchPaths: searchPaths) {
+                matches.append(bin)
+                paths[bin] = path
+            }
+        }
+
+        struct WhichPayload: Encodable {
+            let bins: [String]
+            let paths: [String: String]
+        }
+        let payload = try Self.encodePayload(WhichPayload(bins: matches, paths: paths))
+        return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: payload)
+    }
+
+    private func emitExecEvent(_ event: String, payload: ExecEventPayload) async {
+        guard let sender = self.eventSender else { return }
+        guard let data = try? JSONEncoder().encode(payload),
+              let json = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        await sender(event, json)
     }
 
     private func handleSystemNotify(_ req: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
@@ -511,6 +709,35 @@ actor MacNodeRuntime {
 
     private nonisolated static func cameraEnabled() -> Bool {
         UserDefaults.standard.object(forKey: cameraEnabledKey) as? Bool ?? false
+    }
+
+    private static let blockedEnvKeys: Set<String> = [
+        "PATH",
+        "NODE_OPTIONS",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "PERL5LIB",
+        "PERL5OPT",
+        "RUBYOPT",
+    ]
+
+    private static let blockedEnvPrefixes: [String] = [
+        "DYLD_",
+        "LD_",
+    ]
+
+    private static func sanitizedEnv(_ overrides: [String: String]?) -> [String: String]? {
+        guard let overrides else { return nil }
+        var merged = ProcessInfo.processInfo.environment
+        for (rawKey, value) in overrides {
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { continue }
+            let upper = key.uppercased()
+            if self.blockedEnvKeys.contains(upper) { continue }
+            if self.blockedEnvPrefixes.contains(where: { upper.hasPrefix($0) }) { continue }
+            merged[key] = value
+        }
+        return merged
     }
 
     private nonisolated static func locationMode() -> ClawdbotLocationMode {
