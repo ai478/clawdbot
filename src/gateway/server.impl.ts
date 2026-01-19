@@ -23,8 +23,8 @@ import {
   setSkillsRemoteBridge,
 } from "../infra/skills-remote.js";
 import { scheduleGatewayUpdateCheck } from "../infra/update-startup.js";
-import { autoMigrateLegacyState } from "../infra/state-migrations.js";
-import { createSubsystemLogger, runtimeForLogger } from "../logging.js";
+import { setGatewaySigusr1RestartPolicy } from "../infra/restart.js";
+import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
 import type { PluginServicesHandle } from "../plugins/services.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { runOnboardingWizard } from "../wizard/onboarding.js";
@@ -172,8 +172,8 @@ export async function startGatewayServer(
   }
 
   const cfgAtStart = loadConfig();
+  setGatewaySigusr1RestartPolicy({ allowExternal: cfgAtStart.commands?.restart === true });
   initSubagentRegistry();
-  await autoMigrateLegacyState({ cfg: cfgAtStart, log });
   const defaultAgentId = resolveDefaultAgentId(cfgAtStart);
   const defaultWorkspaceDir = resolveAgentWorkspaceDir(cfgAtStart, defaultAgentId);
   const baseMethods = listGatewayMethods();

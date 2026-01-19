@@ -111,6 +111,8 @@ Note on sandboxing:
 - `requires.bins` is checked on the **host** at skill load time.
 - If an agent is sandboxed, the binary must also exist **inside the container**.
   Install it via `agents.defaults.sandbox.docker.setupCommand` (or a custom image).
+  `setupCommand` runs once after the container is created.
+  Package installs also require network egress, a writable root FS, and a root user in the sandbox.
   Example: the `summarize` skill (`skills/summarize/SKILL.md`) needs the `summarize` CLI
   in the sandbox container to run there.
 
@@ -187,7 +189,7 @@ Skills can also refresh mid-session when the skills watcher is enabled or when a
 
 ## Remote macOS nodes (Linux gateway)
 
-If the Gateway is running on Linux but a **macOS node** is connected **with `system.run` allowed** (Node Run Commands policy not set to "Never"), Clawdbot can treat macOS-only skills as eligible when the required binaries are present on that node. The agent should execute those skills via the `nodes` tool (typically `nodes.run`).
+If the Gateway is running on Linux but a **macOS node** is connected **with `system.run` allowed** (Exec approvals security not set to `deny`), Clawdbot can treat macOS-only skills as eligible when the required binaries are present on that node. The agent should execute those skills via the `nodes` tool (typically `nodes.run`).
 
 This relies on the node reporting its command support and on a bin probe via `system.run`. If the macOS node goes offline later, the skills remain visible; invocations may fail until the node reconnects.
 
