@@ -36,9 +36,10 @@ services:
       - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
       - /home/clawdis/clawd:/home/node/clawd
       - /home/clawdis/clawd-team:/home/node/clawd-team
+      - /home/clawdis/clawd-sync:/home/node/clawd-sync
       - /home/clawdis/shared:/home/node/shared
       - /home/clawdis/shared/skills:/home/node/.clawdbot/skills
-      - /home/clawdis/.codex/auth.json:/home/node/.codex/auth.json
+      - /home/clawdis/.codex/auth.json:/home/node/.codex/auth.json:ro
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${CLAWDBOT_GATEWAY_PORT:-18789}:18789"
@@ -80,7 +81,8 @@ services:
       - /home/clawdis/.clawdbot:/home/node/.clawdbot
       - /home/clawdis/clawd:/home/node/clawd
       - /home/clawdis/clawd-team:/home/node/clawd-team
-      - /home/clawdis/.codex/auth.json:/home/node/.codex/auth.json
+      - /home/clawdis/clawd-sync:/home/node/clawd-sync
+      - /home/clawdis/.codex/auth.json:/home/node/.codex/auth.json:ro
       - /home/linuxbrew/.linuxbrew:/home/linuxbrew/.linuxbrew
       # This maps the host cache we just fixed to the container's expected path
       - /home/clawdis/.cache/clawdbot-brew:/home/node/.cache
