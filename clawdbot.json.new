@@ -100,6 +100,22 @@
         "sandbox": {
           "mode": "off"
         }
+      },
+      {
+        "id": "scraper",
+        "workspace": "/home/node/shared/agents/scraper",
+        "identity": {
+          "name": "Scraper",
+          "theme": "Web scraping expert using Minimax. Fast and efficient for simple data tasks.",
+          "emoji": "🕷️"
+        },
+        "model": {
+          "provider": "minimax",
+          "model": "abab6.5s-chat"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
       }
     ]
   },
