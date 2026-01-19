@@ -1,7 +1,7 @@
 // Minimal in-process queue to serialize command executions.
-// Default lane ("main") preserves the existing behavior. Additional lanes allow
-// low-risk parallelism (e.g. cron jobs) without interleaving stdin / logs for
-// the main auto-reply workflow.
+// The "main" lane allows parallel agent processing (maxConcurrent=4).
+// Session-specific lanes remain serialized (maxConcurrent=1) to prevent
+// interleaving within a single conversation.
 
 type QueueEntry = {
   task: () => Promise<unknown>;
@@ -22,6 +22,9 @@ type LaneState = {
 
 const lanes = new Map<string, LaneState>();
 
+// Default concurrency: "main" lane gets 4 (parallel agents), others get 1 (serialized)
+const DEFAULT_MAIN_LANE_CONCURRENCY = 4;
+
 function getLaneState(lane: string): LaneState {
   const existing = lanes.get(lane);
   if (existing) return existing;
@@ -29,7 +32,7 @@ function getLaneState(lane: string): LaneState {
     lane,
     queue: [],
     active: 0,
-    maxConcurrent: 1,
+    maxConcurrent: lane === "main" ? DEFAULT_MAIN_LANE_CONCURRENCY : 1,
     draining: false,
   };
   lanes.set(lane, created);
