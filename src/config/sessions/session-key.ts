@@ -32,6 +32,17 @@ export function resolveSessionKey(scope: SessionScope, ctx: MsgContext, mainKey?
     mainKey: canonicalMainKey,
   });
   const isGroup = raw.includes(":group:") || raw.includes(":channel:");
-  if (!isGroup) return canonical;
+
+  // Per-user session isolation for DMs
+  // Extract user ID from context for DM sessions
+  if (!isGroup) {
+    const userId = ctx.From ? normalizeE164(ctx.From) : null;
+    if (userId) {
+      // Create per-user session: agent:main:user:<user_id>:main
+      return `agent:${DEFAULT_AGENT_ID}:user:${userId}:${canonicalMainKey}`;
+    }
+    return canonical;
+  }
+
   return `agent:${DEFAULT_AGENT_ID}:${raw}`;
 }

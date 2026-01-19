@@ -18,11 +18,6 @@
       "workspace": "/home/node/clawd",
       "sandbox": {
         "mode": "off"
-      },
-      "sessions": {
-        "spawn": {
-          "allow": ["gitsync"]
-        }
       }
     },
     "list": [
@@ -36,6 +31,9 @@
         },
         "sandbox": {
           "mode": "off"
+        },
+        "subagents": {
+          "allowAgents": ["research", "coder", "admin"]
         }
       },
       {
@@ -43,11 +41,16 @@
         "workspace": "/home/node/clawd-team",
         "identity": {
           "name": "Stevie Team",
-          "theme": "Strategic mind - Team version. Respectful but efficient. Expert in n8n automation and Supabase operations. I cannot modify my own soul or workspace; for any systemic changes, I will suggest checking with Kinan or Abdalrahman for admin approval. I can recognize team members vs admins by checking IDs in `/bot-config/clawdbot.json`. I have access to a shared directory at `/shared` (persistent across sessions) for collaboration.",
+          "theme": "Main team assistant with SDLC, research, support, and onboarding capabilities. Expert in n8n automation and Supabase operations. Before sensitive operations, I check user role via `/shared/scripts/get-employee.sh` and enforce LLM-based permissions (owners > managers > leads > employees). I can spawn specialized sub-agents for complex tasks. I have access to shared and per-employee skills folders.",
           "emoji": "👥"
         },
         "sandbox": {
           "mode": "off"
+        },
+        "sessions": {
+          "spawn": {
+            "allow": ["sdlc-worker", "research-worker", "support-worker", "coder", "research"]
+          }
         }
       },
       {
@@ -55,8 +58,44 @@
         "workspace": "/home/node/clawd",
         "identity": {
           "name": "GitSync Bot",
-          "theme": "Safe git workflow assistant. Creates feature branches, commits changes, and pushes to v1 remote. NEVER modifies main branch - only reads from it. Expert in git workflow and safe branching strategies.",
+          "theme": "Safe git workflow assistant. Creates feature branches, commits changes, and pushes to v1 remote. NEVER modifies main branch - only reads from it. Expert in git workflow and safe branching strategies. Admin-only access.",
           "emoji": "🔄"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      },
+      {
+        "id": "sync",
+        "workspace": "/home/node/clawd-sync",
+        "identity": {
+          "name": "Sync Agent",
+          "theme": "Syncs employee skills and memories to shared folders with admin approval. Reviews employee contributions and promotes valuable ones to shared resources. Admin-only access.",
+          "emoji": "🔄"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      },
+      {
+        "id": "research",
+        "workspace": "/home/node/shared/agents/research",
+        "identity": {
+          "name": "Researcher",
+          "theme": "Code research specialist. Uses Codex CLI to analyze any project codebase, find patterns, and provide context for feature specs. READ-ONLY — never modifies code. Reports findings with file paths, patterns, and feasibility notes. Task format: 'Research [PROJECT]: [question]'",
+          "emoji": "🔍"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      },
+      {
+        "id": "coder",
+        "workspace": "/home/node/shared/agents/coder",
+        "identity": {
+          "name": "Coder",
+          "theme": "Implementation specialist. Uses Codex CLI --full-auto to implement approved specs on any project. Creates feature branches, writes code following existing patterns, and prepares PRs. Only implements APPROVED specs. Task format: 'Implement [PROJECT] WON-XX: [spec]'",
+          "emoji": "⚙️"
         },
         "sandbox": {
           "mode": "off"
@@ -86,6 +125,15 @@
           "gateway"
         ]
       }
+    }
+  },
+  "memory": {
+    "flush": {
+      "enabled": true,
+      "prompt": "Review the conversation and extract important facts, decisions, and action items. Update MEMORY.md concisely. Remove small talk and keep only valuable information.",
+      "systemPrompt": "You are a memory summarization agent. Extract only the most important information from conversations: key decisions, technical details, action items, and outcomes. Ignore greetings, clarifications, and redundant content.",
+      "softThresholdTokens": 80000,
+      "reserveTokensFloor": 2000
     }
   },
   "bindings": [
@@ -123,6 +171,66 @@
       "agentId": "team",
       "match": {
         "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "822984553"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "8346495442"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "6519362897"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "5148176939"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "132525959"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "574133655"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
         "accountId": "*"
       }
     },
@@ -138,6 +246,26 @@
     },
     {
       "agentId": "gitsync",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "1383989988"
+        }
+      }
+    },
+    {
+      "agentId": "sync",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "883350587"
+        }
+      }
+    },
+    {
+      "agentId": "sync",
       "match": {
         "channel": "telegram",
         "peer": {
@@ -166,6 +294,8 @@
         "822984553",
         "892973720",
         "5148176939",
+        "132525959",
+        "574133655",
         "-5211821786"
       ],
       "groupPolicy": "open",
@@ -241,5 +371,8 @@
         "N8N_API_KEY": "${N8N_API_KEY}"
       }
     }
+  },
+  "heartbeat": {
+    "every": "1h"
   }
 }
