@@ -1,12 +1,16 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import { resolveChannelCapabilities } from "../../config/channel-capabilities.js";
 import type { ClawdbotConfig } from "../../config/config.js";
+import { resolveTelegramReactionLevel } from "../../telegram/reaction-level.js";
 import {
   deleteMessageTelegram,
   reactMessageTelegram,
   sendMessageTelegram,
 } from "../../telegram/send.js";
 import { resolveTelegramToken } from "../../telegram/token.js";
+import {
+  resolveTelegramInlineButtonsScope,
+  resolveTelegramTargetChatType,
+} from "../../telegram/inline-buttons.js";
 import {
   createActionGate,
   jsonResult,
@@ -20,19 +24,6 @@ type TelegramButton = {
   text: string;
   callback_data: string;
 };
-
-function hasInlineButtonsCapability(params: {
-  cfg: ClawdbotConfig;
-  accountId?: string | undefined;
-}): boolean {
-  const caps =
-    resolveChannelCapabilities({
-      cfg: params.cfg,
-      channel: "telegram",
-      accountId: params.accountId,
-    }) ?? [];
-  return caps.some((cap) => cap.toLowerCase() === "inlinebuttons");
-}
 
 export function readTelegramButtons(
   params: Record<string, unknown>,
@@ -82,8 +73,20 @@ export async function handleTelegramAction(
   const isActionEnabled = createActionGate(cfg.channels?.telegram?.actions);
 
   if (action === "react") {
+    // Check reaction level first
+    const reactionLevelInfo = resolveTelegramReactionLevel({
+      cfg,
+      accountId: accountId ?? undefined,
+    });
+    if (!reactionLevelInfo.agentReactionsEnabled) {
+      throw new Error(
+        `Telegram agent reactions disabled (reactionLevel="${reactionLevelInfo.level}"). ` +
+          `Set channels.telegram.reactionLevel to "minimal" or "extensive" to enable.`,
+      );
+    }
+    // Also check the existing action gate for backward compatibility
     if (!isActionEnabled("reactions")) {
-      throw new Error("Telegram reactions are disabled.");
+      throw new Error("Telegram reactions are disabled via actions.reactions.");
     }
     const chatId = readStringOrNumberParam(params, "chatId", {
       required: true,
@@ -117,13 +120,40 @@ export async function handleTelegramAction(
       throw new Error("Telegram sendMessage is disabled.");
     }
     const to = readStringParam(params, "to", { required: true });
-    const content = readStringParam(params, "content", { required: true });
     const mediaUrl = readStringParam(params, "mediaUrl");
+    // Allow content to be omitted when sending media-only (e.g., voice notes)
+    const content =
+      readStringParam(params, "content", {
+        required: !mediaUrl,
+        allowEmpty: true,
+      }) ?? "";
     const buttons = readTelegramButtons(params);
-    if (buttons && !hasInlineButtonsCapability({ cfg, accountId: accountId ?? undefined })) {
-      throw new Error(
-        'Telegram inline buttons requested but not enabled. Add "inlineButtons" to channels.telegram.capabilities (or channels.telegram.accounts.<id>.capabilities).',
-      );
+    if (buttons) {
+      const inlineButtonsScope = resolveTelegramInlineButtonsScope({
+        cfg,
+        accountId: accountId ?? undefined,
+      });
+      if (inlineButtonsScope === "off") {
+        throw new Error(
+          'Telegram inline buttons are disabled. Set channels.telegram.capabilities.inlineButtons to "dm", "group", "all", or "allowlist".',
+        );
+      }
+      if (inlineButtonsScope === "dm" || inlineButtonsScope === "group") {
+        const targetType = resolveTelegramTargetChatType(to);
+        if (targetType === "unknown") {
+          throw new Error(
+            `Telegram inline buttons require a numeric chat id when inlineButtons="${inlineButtonsScope}".`,
+          );
+        }
+        if (inlineButtonsScope === "dm" && targetType !== "direct") {
+          throw new Error('Telegram inline buttons are limited to DMs when inlineButtons="dm".');
+        }
+        if (inlineButtonsScope === "group" && targetType !== "group") {
+          throw new Error(
+            'Telegram inline buttons are limited to groups when inlineButtons="group".',
+          );
+        }
+      }
     }
     // Optional threading parameters for forum topics and reply chains
     const replyToMessageId = readNumberParam(params, "replyToMessageId", {
@@ -145,6 +175,7 @@ export async function handleTelegramAction(
       buttons,
       replyToMessageId: replyToMessageId ?? undefined,
       messageThreadId: messageThreadId ?? undefined,
+      asVoice: typeof params.asVoice === "boolean" ? params.asVoice : undefined,
     });
     return jsonResult({
       ok: true,

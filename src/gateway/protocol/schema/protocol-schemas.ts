@@ -48,6 +48,13 @@ import {
   CronUpdateParamsSchema,
 } from "./cron.js";
 import {
+  ExecApprovalsGetParamsSchema,
+  ExecApprovalsNodeGetParamsSchema,
+  ExecApprovalsNodeSetParamsSchema,
+  ExecApprovalsSetParamsSchema,
+  ExecApprovalsSnapshotSchema,
+} from "./exec-approvals.js";
+import {
   ConnectParamsSchema,
   ErrorShapeSchema,
   EventFrameSchema,
@@ -62,6 +69,7 @@ import {
   ChatAbortParamsSchema,
   ChatEventSchema,
   ChatHistoryParamsSchema,
+  ChatInjectParamsSchema,
   ChatSendParamsSchema,
   LogsTailParamsSchema,
   LogsTailResultSchema,
@@ -169,9 +177,15 @@ export const ProtocolSchemas: Record<string, TSchema> = {
   CronRunLogEntry: CronRunLogEntrySchema,
   LogsTailParams: LogsTailParamsSchema,
   LogsTailResult: LogsTailResultSchema,
+  ExecApprovalsGetParams: ExecApprovalsGetParamsSchema,
+  ExecApprovalsSetParams: ExecApprovalsSetParamsSchema,
+  ExecApprovalsNodeGetParams: ExecApprovalsNodeGetParamsSchema,
+  ExecApprovalsNodeSetParams: ExecApprovalsNodeSetParamsSchema,
+  ExecApprovalsSnapshot: ExecApprovalsSnapshotSchema,
   ChatHistoryParams: ChatHistoryParamsSchema,
   ChatSendParams: ChatSendParamsSchema,
   ChatAbortParams: ChatAbortParamsSchema,
+  ChatInjectParams: ChatInjectParamsSchema,
   ChatEvent: ChatEventSchema,
   UpdateRunParams: UpdateRunParamsSchema,
   TickEvent: TickEventSchema,

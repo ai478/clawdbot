@@ -10,6 +10,7 @@ import type { ClawdbotConfig } from "../../config/config.js";
 import type { CliBackendConfig } from "../../config/types.js";
 import { runExec } from "../../process/exec.js";
 import type { EmbeddedContextFile } from "../pi-embedded-helpers.js";
+import { buildSystemPromptParams } from "../system-prompt-params.js";
 import { buildAgentSystemPrompt } from "../system-prompt.js";
 
 const CLI_RUN_QUEUE = new Map<string, Promise<unknown>>();
@@ -43,6 +44,82 @@ export async function cleanupResumeProcesses(
   }
 }
 
+function buildSessionMatchers(backend: CliBackendConfig): RegExp[] {
+  const commandToken = path.basename(backend.command ?? "").trim();
+  if (!commandToken) return [];
+  const matchers: RegExp[] = [];
+  const sessionArg = backend.sessionArg?.trim();
+  const sessionArgs = backend.sessionArgs ?? [];
+  const resumeArgs = backend.resumeArgs ?? [];
+
+  const addMatcher = (args: string[]) => {
+    if (args.length === 0) return;
+    const tokens = [commandToken, ...args];
+    const pattern = tokens
+      .map((token, index) => {
+        const tokenPattern = tokenToRegex(token);
+        return index === 0 ? `(?:^|\\s)${tokenPattern}` : `\\s+${tokenPattern}`;
+      })
+      .join("");
+    matchers.push(new RegExp(pattern));
+  };
+
+  if (sessionArgs.some((arg) => arg.includes("{sessionId}"))) {
+    addMatcher(sessionArgs);
+  } else if (sessionArg) {
+    addMatcher([sessionArg, "{sessionId}"]);
+  }
+
+  if (resumeArgs.some((arg) => arg.includes("{sessionId}"))) {
+    addMatcher(resumeArgs);
+  }
+
+  return matchers;
+}
+
+function tokenToRegex(token: string): string {
+  if (!token.includes("{sessionId}")) return escapeRegex(token);
+  const parts = token.split("{sessionId}").map((part) => escapeRegex(part));
+  return parts.join("\\S+");
+}
+
+/**
+ * Cleanup suspended Clawdbot CLI processes that have accumulated.
+ * Only cleans up if there are more than the threshold (default: 10).
+ */
+export async function cleanupSuspendedCliProcesses(
+  backend: CliBackendConfig,
+  threshold = 10,
+): Promise<void> {
+  if (process.platform === "win32") return;
+  const matchers = buildSessionMatchers(backend);
+  if (matchers.length === 0) return;
+
+  try {
+    const { stdout } = await runExec("ps", ["-ax", "-o", "pid=,stat=,command="]);
+    const suspended: number[] = [];
+    for (const line of stdout.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const match = /^(\d+)\s+(\S+)\s+(.*)$/.exec(trimmed);
+      if (!match) continue;
+      const pid = Number(match[1]);
+      const stat = match[2] ?? "";
+      const command = match[3] ?? "";
+      if (!Number.isFinite(pid)) continue;
+      if (!stat.includes("T")) continue;
+      if (!matchers.some((matcher) => matcher.test(command))) continue;
+      suspended.push(pid);
+    }
+
+    if (suspended.length > threshold) {
+      // Verified locally: stopped (T) processes ignore SIGTERM, so use SIGKILL.
+      await runExec("kill", ["-9", ...suspended.map((pid) => String(pid))]);
+    }
+  } catch {
+    // ignore errors - best effort cleanup
+  }
+}
 export function enqueueCliRun<T>(key: string, task: () => Promise<T>): Promise<T> {
   const prior = CLI_RUN_QUEUE.get(key) ?? Promise.resolve();
   const chained = prior.catch(() => undefined).then(task);
@@ -69,44 +146,6 @@ export type CliOutput = {
   usage?: CliUsage;
 };
 
-function resolveUserTimezone(configured?: string): string {
-  const trimmed = configured?.trim();
-  if (trimmed) {
-    try {
-      new Intl.DateTimeFormat("en-US", { timeZone: trimmed }).format(new Date());
-      return trimmed;
-    } catch {
-      // ignore invalid timezone
-    }
-  }
-  const host = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return host?.trim() || "UTC";
-}
-
-function formatUserTime(date: Date, timeZone: string): string | undefined {
-  try {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      weekday: "long",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(date);
-    const map: Record<string, string> = {};
-    for (const part of parts) {
-      if (part.type !== "literal") map[part.type] = part.value;
-    }
-    if (!map.weekday || !map.year || !map.month || !map.day || !map.hour || !map.minute)
-      return undefined;
-    return `${map.weekday} ${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}`;
-  } catch {
-    return undefined;
-  }
-}
-
 function buildModelAliasLines(cfg?: ClawdbotConfig) {
   const models = cfg?.agents?.defaults?.models ?? {};
   const entries: Array<{ alias: string; model: string }> = [];
@@ -129,12 +168,23 @@ export function buildSystemPrompt(params: {
   extraSystemPrompt?: string;
   ownerNumbers?: string[];
   heartbeatPrompt?: string;
+  docsPath?: string;
   tools: AgentTool[];
   contextFiles?: EmbeddedContextFile[];
   modelDisplay: string;
+  agentId?: string;
 }) {
-  const userTimezone = resolveUserTimezone(params.config?.agents?.defaults?.userTimezone);
-  const userTime = formatUserTime(new Date(), userTimezone);
+  const { runtimeInfo, userTimezone, userTime, userTimeFormat } = buildSystemPromptParams({
+    config: params.config,
+    agentId: params.agentId,
+    runtime: {
+      host: "clawdbot",
+      os: `${os.type()} ${os.release()}`,
+      arch: os.arch(),
+      node: process.version,
+      model: params.modelDisplay,
+    },
+  });
   return buildAgentSystemPrompt({
     workspaceDir: params.workspaceDir,
     defaultThinkLevel: params.defaultThinkLevel,
@@ -142,17 +192,13 @@ export function buildSystemPrompt(params: {
     ownerNumbers: params.ownerNumbers,
     reasoningTagHint: false,
     heartbeatPrompt: params.heartbeatPrompt,
-    runtimeInfo: {
-      host: "clawdbot",
-      os: `${os.type()} ${os.release()}`,
-      arch: os.arch(),
-      node: process.version,
-      model: params.modelDisplay,
-    },
+    docsPath: params.docsPath,
+    runtimeInfo,
     toolNames: params.tools.map((tool) => tool.name),
     modelAliasLines: buildModelAliasLines(params.config),
     userTimezone,
     userTime,
+    userTimeFormat,
     contextFiles: params.contextFiles,
   });
 }

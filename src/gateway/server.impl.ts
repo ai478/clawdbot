@@ -1,5 +1,6 @@
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { initSubagentRegistry } from "../agents/subagent-registry.js";
+import { registerSkillsChangeListener } from "../agents/skills/refresh.js";
 import type { CanvasHostServer } from "../canvas-host/server.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
 import { createDefaultDeps } from "../cli/deps.js";
@@ -16,8 +17,14 @@ import { onHeartbeatEvent } from "../infra/heartbeat-events.js";
 import { startHeartbeatRunner } from "../infra/heartbeat-runner.js";
 import { getMachineDisplayName } from "../infra/machine-name.js";
 import { ensureClawdbotCliOnPath } from "../infra/path-env.js";
-import { autoMigrateLegacyState } from "../infra/state-migrations.js";
-import { createSubsystemLogger, runtimeForLogger } from "../logging.js";
+import {
+  primeRemoteSkillsCache,
+  refreshRemoteBinsForConnectedNodes,
+  setSkillsRemoteBridge,
+} from "../infra/skills-remote.js";
+import { scheduleGatewayUpdateCheck } from "../infra/update-startup.js";
+import { setGatewaySigusr1RestartPolicy } from "../infra/restart.js";
+import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
 import type { PluginServicesHandle } from "../plugins/services.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { runOnboardingWizard } from "../wizard/onboarding.js";
@@ -128,7 +135,7 @@ export async function startGatewayServer(
   // Ensure all default port derivations (browser/bridge/canvas) see the actual runtime port.
   process.env.CLAWDBOT_GATEWAY_PORT = String(port);
 
-  const configSnapshot = await readConfigFileSnapshot();
+  let configSnapshot = await readConfigFileSnapshot();
   if (configSnapshot.legacyIssues.length > 0) {
     if (isNixMode) {
       throw new Error(
@@ -151,9 +158,22 @@ export async function startGatewayServer(
     }
   }
 
+  configSnapshot = await readConfigFileSnapshot();
+  if (configSnapshot.exists && !configSnapshot.valid) {
+    const issues =
+      configSnapshot.issues.length > 0
+        ? configSnapshot.issues
+            .map((issue) => `${issue.path || "<root>"}: ${issue.message}`)
+            .join("\n")
+        : "Unknown validation issue.";
+    throw new Error(
+      `Invalid config at ${configSnapshot.path}.\n${issues}\nRun "clawdbot doctor" to repair, then retry.`,
+    );
+  }
+
   const cfgAtStart = loadConfig();
+  setGatewaySigusr1RestartPolicy({ allowExternal: cfgAtStart.commands?.restart === true });
   initSubagentRegistry();
-  await autoMigrateLegacyState({ cfg: cfgAtStart, log });
   const defaultAgentId = resolveDefaultAgentId(cfgAtStart);
   const defaultWorkspaceDir = resolveAgentWorkspaceDir(cfgAtStart, defaultAgentId);
   const baseMethods = listGatewayMethods();
@@ -297,6 +317,13 @@ export async function startGatewayServer(
   const bridgeSendToAllSubscribed = bridgeRuntime.bridgeSendToAllSubscribed;
   const broadcastVoiceWakeChanged = bridgeRuntime.broadcastVoiceWakeChanged;
 
+  setSkillsRemoteBridge(bridge);
+  void primeRemoteSkillsCache();
+  registerSkillsChangeListener(() => {
+    const latest = loadConfig();
+    void refreshRemoteBinsForConnectedNodes(latest);
+  });
+
   const { tickInterval, healthInterval, dedupeCleanup } = startGatewayMaintenanceTimers({
     broadcast,
     bridgeSendToAllSubscribed,
@@ -389,6 +416,7 @@ export async function startGatewayServer(
     log,
     isNixMode,
   });
+  scheduleGatewayUpdateCheck({ cfg: cfgAtStart, log, isNixMode });
   const tailscaleCleanup = await startGatewayTailscaleExposure({
     tailscaleMode,
     resetOnExit: tailscaleConfig.resetOnExit,

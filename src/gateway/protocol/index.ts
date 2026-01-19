@@ -22,6 +22,8 @@ import {
   type ChatEvent,
   ChatEventSchema,
   ChatHistoryParamsSchema,
+  type ChatInjectParams,
+  ChatInjectParamsSchema,
   ChatSendParamsSchema,
   type ConfigApplyParams,
   ConfigApplyParamsSchema,
@@ -54,6 +56,15 @@ import {
   CronStatusParamsSchema,
   type CronUpdateParams,
   CronUpdateParamsSchema,
+  type ExecApprovalsGetParams,
+  ExecApprovalsGetParamsSchema,
+  type ExecApprovalsNodeGetParams,
+  ExecApprovalsNodeGetParamsSchema,
+  type ExecApprovalsNodeSetParams,
+  ExecApprovalsNodeSetParamsSchema,
+  type ExecApprovalsSetParams,
+  ExecApprovalsSetParamsSchema,
+  type ExecApprovalsSnapshot,
   ErrorCodes,
   type ErrorShape,
   ErrorShapeSchema,
@@ -228,10 +239,23 @@ export const validateCronUpdateParams = ajv.compile<CronUpdateParams>(CronUpdate
 export const validateCronRemoveParams = ajv.compile<CronRemoveParams>(CronRemoveParamsSchema);
 export const validateCronRunParams = ajv.compile<CronRunParams>(CronRunParamsSchema);
 export const validateCronRunsParams = ajv.compile<CronRunsParams>(CronRunsParamsSchema);
+export const validateExecApprovalsGetParams = ajv.compile<ExecApprovalsGetParams>(
+  ExecApprovalsGetParamsSchema,
+);
+export const validateExecApprovalsSetParams = ajv.compile<ExecApprovalsSetParams>(
+  ExecApprovalsSetParamsSchema,
+);
+export const validateExecApprovalsNodeGetParams = ajv.compile<ExecApprovalsNodeGetParams>(
+  ExecApprovalsNodeGetParamsSchema,
+);
+export const validateExecApprovalsNodeSetParams = ajv.compile<ExecApprovalsNodeSetParams>(
+  ExecApprovalsNodeSetParamsSchema,
+);
 export const validateLogsTailParams = ajv.compile<LogsTailParams>(LogsTailParamsSchema);
 export const validateChatHistoryParams = ajv.compile(ChatHistoryParamsSchema);
 export const validateChatSendParams = ajv.compile(ChatSendParamsSchema);
 export const validateChatAbortParams = ajv.compile<ChatAbortParams>(ChatAbortParamsSchema);
+export const validateChatInjectParams = ajv.compile<ChatInjectParams>(ChatInjectParamsSchema);
 export const validateChatEvent = ajv.compile(ChatEventSchema);
 export const validateUpdateRunParams = ajv.compile<UpdateRunParams>(UpdateRunParamsSchema);
 export const validateWebLoginStartParams =
@@ -310,6 +334,7 @@ export {
   LogsTailResultSchema,
   ChatHistoryParamsSchema,
   ChatSendParamsSchema,
+  ChatInjectParamsSchema,
   UpdateRunParamsSchema,
   TickEventSchema,
   ShutdownEventSchema,
@@ -384,8 +409,12 @@ export type {
   CronRunParams,
   CronRunsParams,
   CronRunLogEntry,
+  ExecApprovalsGetParams,
+  ExecApprovalsSetParams,
+  ExecApprovalsSnapshot,
   LogsTailParams,
   LogsTailResult,
   PollParams,
   UpdateRunParams,
+  ChatInjectParams,
 };

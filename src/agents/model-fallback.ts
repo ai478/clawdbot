@@ -1,6 +1,11 @@
 import type { ClawdbotConfig } from "../config/config.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
-import { coerceToFailoverError, describeFailoverError, isFailoverError } from "./failover-error.js";
+import {
+  coerceToFailoverError,
+  describeFailoverError,
+  isFailoverError,
+  isTimeoutError,
+} from "./failover-error.js";
 import {
   buildModelAliasIndex,
   modelKey,
@@ -26,11 +31,16 @@ type FallbackAttempt = {
 
 function isAbortError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
+  if (isFailoverError(err)) return false;
   const name = "name" in err ? String(err.name) : "";
   if (name === "AbortError") return true;
   const message =
     "message" in err && typeof err.message === "string" ? err.message.toLowerCase() : "";
   return message.includes("aborted");
+}
+
+function shouldRethrowAbort(err: unknown): boolean {
+  return isAbortError(err) && !isTimeoutError(err);
 }
 
 function buildAllowedModelKeys(
@@ -119,8 +129,6 @@ function resolveFallbackCandidates(params: {
   /** Optional explicit fallbacks list; when provided (even empty), replaces agents.defaults.model.fallbacks. */
   fallbacksOverride?: string[];
 }): ModelCandidate[] {
-  const provider = params.provider.trim() || DEFAULT_PROVIDER;
-  const model = params.model.trim() || DEFAULT_MODEL;
   const primary = params.cfg
     ? resolveConfiguredModelRef({
         cfg: params.cfg,
@@ -128,11 +136,15 @@ function resolveFallbackCandidates(params: {
         defaultModel: DEFAULT_MODEL,
       })
     : null;
+  const defaultProvider = primary?.provider ?? DEFAULT_PROVIDER;
+  const defaultModel = primary?.model ?? DEFAULT_MODEL;
+  const provider = String(params.provider ?? "").trim() || defaultProvider;
+  const model = String(params.model ?? "").trim() || defaultModel;
   const aliasIndex = buildModelAliasIndex({
     cfg: params.cfg ?? {},
-    defaultProvider: DEFAULT_PROVIDER,
+    defaultProvider,
   });
-  const allowlist = buildAllowedModelKeys(params.cfg, DEFAULT_PROVIDER);
+  const allowlist = buildAllowedModelKeys(params.cfg, defaultProvider);
   const seen = new Set<string>();
   const candidates: ModelCandidate[] = [];
 
@@ -160,7 +172,7 @@ function resolveFallbackCandidates(params: {
   for (const raw of modelFallbacks) {
     const resolved = resolveModelRefFromString({
       raw: String(raw ?? ""),
-      defaultProvider: DEFAULT_PROVIDER,
+      defaultProvider,
       aliasIndex,
     });
     if (!resolved) continue;
@@ -214,7 +226,7 @@ export async function runWithModelFallback<T>(params: {
         attempts,
       };
     } catch (err) {
-      if (isAbortError(err)) throw err;
+      if (shouldRethrowAbort(err)) throw err;
       const normalized =
         coerceToFailoverError(err, {
           provider: candidate.provider,
@@ -301,7 +313,7 @@ export async function runWithImageModelFallback<T>(params: {
         attempts,
       };
     } catch (err) {
-      if (isAbortError(err)) throw err;
+      if (shouldRethrowAbort(err)) throw err;
       lastError = err;
       attempts.push({
         provider: candidate.provider,

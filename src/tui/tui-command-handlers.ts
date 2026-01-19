@@ -1,9 +1,13 @@
 import type { Component, TUI } from "@mariozechner/pi-tui";
-import { formatThinkingLevels, normalizeUsageDisplay } from "../auto-reply/thinking.js";
+import {
+  formatThinkingLevels,
+  normalizeUsageDisplay,
+  resolveResponseUsageMode,
+} from "../auto-reply/thinking.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { helpText, parseCommand } from "./commands.js";
 import type { ChatLog } from "./components/chat-log.js";
-import { createSelectList, createSettingsList } from "./components/selectors.js";
+import { createSearchableSelectList, createSettingsList } from "./components/selectors.js";
 import type { GatewayChatClient } from "./gateway-chat.js";
 import { formatStatusSummary } from "./tui-status-summary.js";
 import type {
@@ -68,7 +72,7 @@ export function createCommandHandlers(context: CommandHandlerContext) {
         label: `${model.provider}/${model.id}`,
         description: model.name && model.name !== model.id ? model.name : "",
       }));
-      const selector = createSelectList(items, 9);
+      const selector = createSearchableSelectList(items, 9);
       selector.onSelect = (item) => {
         void (async () => {
           try {
@@ -109,7 +113,7 @@ export function createCommandHandlers(context: CommandHandlerContext) {
       label: agent.name ? `${agent.id} (${agent.name})` : agent.id,
       description: agent.id === state.agentDefaultId ? "default" : "",
     }));
-    const selector = createSelectList(items, 9);
+    const selector = createSearchableSelectList(items, 9);
     selector.onSelect = (item) => {
       void (async () => {
         closeOverlay();
@@ -139,7 +143,7 @@ export function createCommandHandlers(context: CommandHandlerContext) {
           : formatSessionKey(session.key),
         description: session.updatedAt ? new Date(session.updatedAt).toLocaleString() : "",
       }));
-      const selector = createSelectList(items, 9);
+      const selector = createSearchableSelectList(items, 9);
       selector.onSelect = (item) => {
         void (async () => {
           closeOverlay();
@@ -317,23 +321,25 @@ export function createCommandHandlers(context: CommandHandlerContext) {
           chatLog.addSystem(`reasoning failed: ${String(err)}`);
         }
         break;
-      case "cost": {
+      case "usage": {
         const normalized = args ? normalizeUsageDisplay(args) : undefined;
         if (args && !normalized) {
-          chatLog.addSystem("usage: /cost <on|off>");
+          chatLog.addSystem("usage: /usage <off|tokens|full>");
           break;
         }
-        const current = state.sessionInfo.responseUsage === "on" ? "on" : "off";
-        const next = normalized ?? (current === "on" ? "off" : "on");
+        const currentRaw = state.sessionInfo.responseUsage;
+        const current = resolveResponseUsageMode(currentRaw);
+        const next =
+          normalized ?? (current === "off" ? "tokens" : current === "tokens" ? "full" : "off");
         try {
           await client.patchSession({
             key: state.currentSessionKey,
             responseUsage: next === "off" ? null : next,
           });
-          chatLog.addSystem(next === "on" ? "usage line enabled" : "usage line disabled");
+          chatLog.addSystem(`usage footer: ${next}`);
           await refreshSessionInfo();
         } catch (err) {
-          chatLog.addSystem(`cost failed: ${String(err)}`);
+          chatLog.addSystem(`usage failed: ${String(err)}`);
         }
         break;
       }

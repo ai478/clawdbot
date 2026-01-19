@@ -7,22 +7,27 @@ export {
 } from "./pi-embedded-helpers/bootstrap.js";
 export {
   classifyFailoverReason,
+  formatRawAssistantErrorForUi,
   formatAssistantErrorText,
   getApiErrorPayloadFingerprint,
   isAuthAssistantError,
   isAuthErrorMessage,
   isBillingAssistantError,
+  parseApiErrorInfo,
+  sanitizeUserFacingText,
   isBillingErrorMessage,
   isCloudCodeAssistFormatError,
   isCompactionFailureError,
   isContextOverflowError,
   isFailoverAssistantError,
   isFailoverErrorMessage,
+  isImageDimensionErrorMessage,
   isOverloadedErrorMessage,
   isRawApiErrorPayload,
   isRateLimitAssistantError,
   isRateLimitErrorMessage,
   isTimeoutErrorMessage,
+  parseImageDimensionError,
 } from "./pi-embedded-helpers/errors.js";
 export {
   downgradeGeminiHistory,

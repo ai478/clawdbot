@@ -31,6 +31,12 @@ struct MenuContent: View {
         self._updateStatus = Bindable(wrappedValue: updater?.updateStatus ?? UpdateStatus.disabled)
     }
 
+    private var execApprovalModeBinding: Binding<ExecApprovalQuickMode> {
+        Binding(
+            get: { self.state.execApprovalMode },
+            set: { self.state.execApprovalMode = $0 })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle(isOn: self.activeBinding) {
@@ -68,6 +74,13 @@ struct MenuContent: View {
             Toggle(isOn: self.$cameraEnabled) {
                 Label("Allow Camera", systemImage: "camera")
             }
+            Picker(selection: self.execApprovalModeBinding) {
+                ForEach(ExecApprovalQuickMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            } label: {
+                Label("Exec Approvals", systemImage: "terminal")
+            }
             Toggle(isOn: Binding(get: { self.state.canvasEnabled }, set: { self.state.canvasEnabled = $0 })) {
                 Label("Allow Canvas", systemImage: "rectangle.and.pencil.and.ellipsis")
             }
@@ -102,11 +115,14 @@ struct MenuContent: View {
             }
             if self.state.canvasEnabled {
                 Button {
-                    if self.state.canvasPanelVisible {
-                        CanvasManager.shared.hideAll()
-                    } else {
-                        // Don't force a navigation on re-open: preserve the current web view state.
-                        _ = try? CanvasManager.shared.show(sessionKey: "main", path: nil)
+                    Task { @MainActor in
+                        if self.state.canvasPanelVisible {
+                            CanvasManager.shared.hideAll()
+                        } else {
+                            let sessionKey = await GatewayConnection.shared.mainSessionKey()
+                            // Don't force a navigation on re-open: preserve the current web view state.
+                            _ = try? CanvasManager.shared.show(sessionKey: sessionKey, path: nil)
+                        }
                     }
                 } label: {
                     Label(

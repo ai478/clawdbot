@@ -11,7 +11,7 @@ import type { SlackMessageEvent } from "../types.js";
 
 import { normalizeAllowList, normalizeAllowListLower, normalizeSlackSlug } from "./allow-list.js";
 import { resolveSlackChannelConfig } from "./channel-config.js";
-import { isSlackRoomAllowedByPolicy } from "./policy.js";
+import { isSlackChannelAllowedByPolicy } from "./policy.js";
 
 export function inferSlackChannelType(
   channelId?: string | null,
@@ -29,7 +29,12 @@ export function normalizeSlackChannelType(
   channelId?: string | null,
 ): SlackMessageEvent["channel_type"] {
   const normalized = channelType?.trim().toLowerCase();
-  if (normalized === "im" || normalized === "mpim" || normalized === "channel" || normalized === "group") {
+  if (
+    normalized === "im" ||
+    normalized === "mpim" ||
+    normalized === "channel" ||
+    normalized === "group"
+  ) {
     return normalized;
   }
   return inferSlackChannelType(channelId) ?? "channel";
@@ -74,6 +79,8 @@ export type SlackMonitorContext = {
   reactionMode: SlackReactionNotificationMode;
   reactionAllowlist: Array<string | number>;
   replyToMode: "off" | "first" | "all";
+  threadHistoryScope: "thread" | "channel";
+  threadInheritParent: boolean;
   slashCommand: Required<import("../../config/config.js").SlackSlashCommandConfig>;
   textLimit: number;
   ackReactionScope: string;
@@ -133,6 +140,8 @@ export function createSlackMonitorContext(params: {
   reactionMode: SlackReactionNotificationMode;
   reactionAllowlist: Array<string | number>;
   replyToMode: SlackMonitorContext["replyToMode"];
+  threadHistoryScope: SlackMonitorContext["threadHistoryScope"];
+  threadInheritParent: SlackMonitorContext["threadInheritParent"];
   slashCommand: SlackMonitorContext["slashCommand"];
   textLimit: number;
   ackReactionScope: string;
@@ -177,7 +186,7 @@ export function createSlackMonitorContext(params: {
       : isGroup
         ? `slack:group:${channelId}`
         : `slack:channel:${channelId}`;
-    const chatType = isDirectMessage ? "direct" : isGroup ? "group" : "room";
+    const chatType = isDirectMessage ? "direct" : isGroup ? "group" : "channel";
     return resolveSessionKey(
       params.sessionScope,
       { From: from, ChatType: chatType, Provider: "slack" },
@@ -301,19 +310,29 @@ export function createSlackMonitorContext(params: {
         channels: params.channelsConfig,
         defaultRequireMention,
       });
+      const channelMatchMeta = `matchKey=${channelConfig?.matchKey ?? "none"} matchSource=${
+        channelConfig?.matchSource ?? "none"
+      }`;
       const channelAllowed = channelConfig?.allowed !== false;
       const channelAllowlistConfigured =
         Boolean(params.channelsConfig) && Object.keys(params.channelsConfig ?? {}).length > 0;
       if (
-        !isSlackRoomAllowedByPolicy({
+        !isSlackChannelAllowedByPolicy({
           groupPolicy: params.groupPolicy,
           channelAllowlistConfigured,
           channelAllowed,
         })
       ) {
+        logVerbose(
+          `slack: drop channel ${p.channelId} (groupPolicy=${params.groupPolicy}, ${channelMatchMeta})`,
+        );
         return false;
       }
-      if (!channelAllowed) return false;
+      if (!channelAllowed) {
+        logVerbose(`slack: drop channel ${p.channelId} (${channelMatchMeta})`);
+        return false;
+      }
+      logVerbose(`slack: allow channel ${p.channelId} (${channelMatchMeta})`);
     }
 
     return true;
@@ -363,6 +382,8 @@ export function createSlackMonitorContext(params: {
     reactionMode: params.reactionMode,
     reactionAllowlist: params.reactionAllowlist,
     replyToMode: params.replyToMode,
+    threadHistoryScope: params.threadHistoryScope,
+    threadInheritParent: params.threadInheritParent,
     slashCommand: params.slashCommand,
     textLimit: params.textLimit,
     ackReactionScope: params.ackReactionScope,

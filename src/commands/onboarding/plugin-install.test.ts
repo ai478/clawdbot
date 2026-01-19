@@ -68,6 +68,9 @@ describe("ensureOnboardingPluginInstalled", () => {
     expect(result.installed).toBe(true);
     expect(result.cfg.plugins?.entries?.zalo?.enabled).toBe(true);
     expect(result.cfg.plugins?.allow).toContain("zalo");
+    expect(result.cfg.plugins?.installs?.zalo?.source).toBe("npm");
+    expect(result.cfg.plugins?.installs?.zalo?.spec).toBe("@clawdbot/zalo");
+    expect(result.cfg.plugins?.installs?.zalo?.installPath).toBe("/tmp/zalo");
     expect(installPluginFromNpmSpec).toHaveBeenCalledWith(
       expect.objectContaining({ spec: "@clawdbot/zalo" }),
     );
@@ -79,7 +82,12 @@ describe("ensureOnboardingPluginInstalled", () => {
       select: vi.fn(async () => "local") as WizardPrompter["select"],
     });
     const cfg: ClawdbotConfig = {};
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.existsSync).mockImplementation((value) => {
+      const raw = String(value);
+      return (
+        raw.endsWith(`${path.sep}.git`) || raw.endsWith(`${path.sep}extensions${path.sep}zalo`)
+      );
+    });
 
     const result = await ensureOnboardingPluginInstalled({
       cfg,
@@ -104,7 +112,12 @@ describe("ensureOnboardingPluginInstalled", () => {
       confirm,
     });
     const cfg: ClawdbotConfig = {};
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.existsSync).mockImplementation((value) => {
+      const raw = String(value);
+      return (
+        raw.endsWith(`${path.sep}.git`) || raw.endsWith(`${path.sep}extensions${path.sep}zalo`)
+      );
+    });
     installPluginFromNpmSpec.mockResolvedValue({
       ok: false,
       error: "nope",

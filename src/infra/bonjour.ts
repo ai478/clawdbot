@@ -4,6 +4,7 @@ import { logDebug, logWarn } from "../logger.js";
 import { getLogger } from "../logging.js";
 import { ignoreCiaoCancellationRejection } from "./bonjour-ciao.js";
 import { formatBonjourError } from "./bonjour-errors.js";
+import { isTruthyEnvValue } from "./env.js";
 import { registerUnhandledRejectionHandler } from "./unhandled-rejections.js";
 
 export type GatewayBonjourAdvertiser = {
@@ -16,12 +17,14 @@ export type GatewayBonjourAdvertiseOpts = {
   sshPort?: number;
   bridgePort?: number;
   canvasPort?: number;
+  bridgeTlsEnabled?: boolean;
+  bridgeTlsFingerprintSha256?: string;
   tailnetDns?: string;
   cliPath?: string;
 };
 
 function isDisabledByEnv() {
-  if (process.env.CLAWDBOT_DISABLE_BONJOUR === "1") return true;
+  if (isTruthyEnvValue(process.env.CLAWDBOT_DISABLE_BONJOUR)) return true;
   if (process.env.NODE_ENV === "test") return true;
   if (process.env.VITEST) return true;
   return false;
@@ -106,6 +109,12 @@ export async function startGatewayBonjourAdvertiser(
   }
   if (typeof opts.canvasPort === "number" && opts.canvasPort > 0) {
     txtBase.canvasPort = String(opts.canvasPort);
+  }
+  if (opts.bridgeTlsEnabled) {
+    txtBase.bridgeTls = "1";
+    if (opts.bridgeTlsFingerprintSha256) {
+      txtBase.bridgeTlsSha256 = opts.bridgeTlsFingerprintSha256;
+    }
   }
   if (typeof opts.tailnetDns === "string" && opts.tailnetDns.trim()) {
     txtBase.tailnetDns = opts.tailnetDns.trim();

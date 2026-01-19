@@ -15,6 +15,7 @@ import {
   extractAssistantThinking,
   formatReasoningMessage,
 } from "../../pi-embedded-utils.js";
+import type { ToolResultFormat } from "../../pi-embedded-subscribe.js";
 
 type ToolMetaEntry = { toolName: string; meta?: string };
 
@@ -22,10 +23,12 @@ export function buildEmbeddedRunPayloads(params: {
   assistantTexts: string[];
   toolMetas: ToolMetaEntry[];
   lastAssistant: AssistantMessage | undefined;
+  lastToolError?: { toolName: string; meta?: string; error?: string };
   config?: ClawdbotConfig;
   sessionKey: string;
   verboseLevel?: VerboseLevel;
   reasoningLevel?: ReasoningLevel;
+  toolResultFormat?: ToolResultFormat;
   inlineToolResultsAllowed: boolean;
 }): Array<{
   text?: string;
@@ -47,6 +50,7 @@ export function buildEmbeddedRunPayloads(params: {
     replyToCurrent?: boolean;
   }> = [];
 
+  const useMarkdown = params.toolResultFormat === "markdown";
   const lastAssistantErrored = params.lastAssistant?.stopReason === "error";
   const errorText = params.lastAssistant
     ? formatAssistantErrorText(params.lastAssistant, {
@@ -63,13 +67,17 @@ export function buildEmbeddedRunPayloads(params: {
   const normalizedRawErrorText = rawErrorMessage
     ? normalizeTextForComparison(rawErrorMessage)
     : null;
+  const normalizedErrorText = errorText ? normalizeTextForComparison(errorText) : null;
+  const genericErrorText = "The AI service returned an error. Please try again.";
   if (errorText) replyItems.push({ text: errorText, isError: true });
 
   const inlineToolResults =
-    params.inlineToolResultsAllowed && params.verboseLevel === "on" && params.toolMetas.length > 0;
+    params.inlineToolResultsAllowed && params.verboseLevel !== "off" && params.toolMetas.length > 0;
   if (inlineToolResults) {
     for (const { toolName, meta } of params.toolMetas) {
-      const agg = formatToolAggregate(toolName, meta ? [meta] : []);
+      const agg = formatToolAggregate(toolName, meta ? [meta] : [], {
+        markdown: useMarkdown,
+      });
       const {
         text: cleanedText,
         mediaUrls,
@@ -102,6 +110,11 @@ export function buildEmbeddedRunPayloads(params: {
     if (!lastAssistantErrored) return false;
     const trimmed = text.trim();
     if (!trimmed) return false;
+    if (errorText) {
+      const normalized = normalizeTextForComparison(trimmed);
+      if (normalized && normalizedErrorText && normalized === normalizedErrorText) return true;
+      if (trimmed === genericErrorText) return true;
+    }
     if (rawErrorMessage && trimmed === rawErrorMessage) return true;
     if (normalizedRawErrorText) {
       const normalized = normalizeTextForComparison(trimmed);
@@ -140,6 +153,19 @@ export function buildEmbeddedRunPayloads(params: {
       replyToId,
       replyToTag,
       replyToCurrent,
+    });
+  }
+
+  if (replyItems.length === 0 && params.lastToolError) {
+    const toolSummary = formatToolAggregate(
+      params.lastToolError.toolName,
+      params.lastToolError.meta ? [params.lastToolError.meta] : undefined,
+      { markdown: useMarkdown },
+    );
+    const errorSuffix = params.lastToolError.error ? `: ${params.lastToolError.error}` : "";
+    replyItems.push({
+      text: `⚠️ ${toolSummary} failed${errorSuffix}`,
+      isError: true,
     });
   }
 

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-import { createTargetViaCdp, normalizeCdpWsUrl } from "./cdp.js";
+import { appendCdpPath, createTargetViaCdp, getHeadersWithAuth, normalizeCdpWsUrl } from "./cdp.js";
 import {
   isChromeCdpReady,
   isChromeReachable,
@@ -22,6 +22,8 @@ import {
   ensureChromeExtensionRelayServer,
   stopChromeExtensionRelayServer,
 } from "./extension-relay.js";
+import type { PwAiModule } from "./pw-ai-module.js";
+import { getPwAiModule } from "./pw-ai-module.js";
 import { resolveTargetIdFromTabs } from "./target-id.js";
 import { movePathToTrash } from "./trash.js";
 
@@ -50,7 +52,8 @@ async function fetchJson<T>(url: string, timeoutMs = 1500, init?: RequestInit): 
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    const headers = getHeadersWithAuth(url, (init?.headers as Record<string, string>) || {});
+    const res = await fetch(url, { ...init, headers, signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as T;
   } finally {
@@ -62,7 +65,8 @@ async function fetchOk(url: string, timeoutMs = 1500, init?: RequestInit): Promi
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    const headers = getHeadersWithAuth(url, (init?.headers as Record<string, string>) || {});
+    const res = await fetch(url, { ...init, headers, signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   } finally {
     clearTimeout(t);
@@ -86,7 +90,7 @@ function createProfileContext(
     const current = state();
     let profileState = current.profiles.get(profile.name);
     if (!profileState) {
-      profileState = { profile, running: null };
+      profileState = { profile, running: null, lastTargetId: null };
       current.profiles.set(profile.name, profileState);
     }
     return profileState;
@@ -98,6 +102,21 @@ function createProfileContext(
   };
 
   const listTabs = async (): Promise<BrowserTab[]> => {
+    // For remote profiles, use Playwright's persistent connection to avoid ephemeral sessions
+    if (!profile.cdpIsLoopback) {
+      const mod = await getPwAiModule({ mode: "strict" });
+      const listPagesViaPlaywright = (mod as Partial<PwAiModule> | null)?.listPagesViaPlaywright;
+      if (typeof listPagesViaPlaywright === "function") {
+        const pages = await listPagesViaPlaywright({ cdpUrl: profile.cdpUrl });
+        return pages.map((p) => ({
+          targetId: p.targetId,
+          title: p.title,
+          url: p.url,
+          type: p.type,
+        }));
+      }
+    }
+
     const raw = await fetchJson<
       Array<{
         id?: string;
@@ -106,7 +125,7 @@ function createProfileContext(
         webSocketDebuggerUrl?: string;
         type?: string;
       }>
-    >(`${profile.cdpUrl.replace(/\/$/, "")}/json/list`);
+    >(appendCdpPath(profile.cdpUrl, "/json/list"));
     return raw
       .map((t) => ({
         targetId: t.id ?? "",
@@ -119,6 +138,24 @@ function createProfileContext(
   };
 
   const openTab = async (url: string): Promise<BrowserTab> => {
+    // For remote profiles, use Playwright's persistent connection to create tabs
+    // This ensures the tab persists beyond a single request
+    if (!profile.cdpIsLoopback) {
+      const mod = await getPwAiModule({ mode: "strict" });
+      const createPageViaPlaywright = (mod as Partial<PwAiModule> | null)?.createPageViaPlaywright;
+      if (typeof createPageViaPlaywright === "function") {
+        const page = await createPageViaPlaywright({ cdpUrl: profile.cdpUrl, url });
+        const profileState = getProfileState();
+        profileState.lastTargetId = page.targetId;
+        return {
+          targetId: page.targetId,
+          title: page.title,
+          url: page.url,
+          type: page.type,
+        };
+      }
+    }
+
     const createdViaCdp = await createTargetViaCdp({
       cdpUrl: profile.cdpUrl,
       url,
@@ -127,6 +164,8 @@ function createProfileContext(
       .catch(() => null);
 
     if (createdViaCdp) {
+      const profileState = getProfileState();
+      profileState.lastTargetId = createdViaCdp;
       const deadline = Date.now() + 2000;
       while (Date.now() < deadline) {
         const tabs = await listTabs().catch(() => [] as BrowserTab[]);
@@ -146,8 +185,13 @@ function createProfileContext(
       type?: string;
     };
 
-    const base = profile.cdpUrl.replace(/\/$/, "");
-    const endpoint = `${base}/json/new?${encoded}`;
+    const endpointUrl = new URL(appendCdpPath(profile.cdpUrl, "/json/new"));
+    const endpoint = endpointUrl.search
+      ? (() => {
+          endpointUrl.searchParams.set("url", url);
+          return endpointUrl.toString();
+        })()
+      : `${endpointUrl.toString()}?${encoded}`;
     const created = await fetchJson<CdpTarget>(endpoint, 1500, {
       method: "PUT",
     }).catch(async (err) => {
@@ -158,22 +202,47 @@ function createProfileContext(
     });
 
     if (!created.id) throw new Error("Failed to open tab (missing id)");
+    const profileState = getProfileState();
+    profileState.lastTargetId = created.id;
     return {
       targetId: created.id,
       title: created.title ?? "",
       url: created.url ?? url,
-      wsUrl: normalizeWsUrl(created.webSocketDebuggerUrl, base),
+      wsUrl: normalizeWsUrl(created.webSocketDebuggerUrl, profile.cdpUrl),
       type: created.type,
     };
   };
 
-  const isReachable = async (timeoutMs = 300) => {
-    const wsTimeout = Math.max(200, Math.min(2000, timeoutMs * 2));
-    return await isChromeCdpReady(profile.cdpUrl, timeoutMs, wsTimeout);
+  const resolveRemoteHttpTimeout = (timeoutMs: number | undefined) => {
+    if (profile.cdpIsLoopback) return timeoutMs ?? 300;
+    const resolved = state().resolved;
+    if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs)) {
+      return Math.max(Math.floor(timeoutMs), resolved.remoteCdpTimeoutMs);
+    }
+    return resolved.remoteCdpTimeoutMs;
   };
 
-  const isHttpReachable = async (timeoutMs = 300) => {
-    return await isChromeReachable(profile.cdpUrl, timeoutMs);
+  const resolveRemoteWsTimeout = (timeoutMs: number | undefined) => {
+    if (profile.cdpIsLoopback) {
+      const base = timeoutMs ?? 300;
+      return Math.max(200, Math.min(2000, base * 2));
+    }
+    const resolved = state().resolved;
+    if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs)) {
+      return Math.max(Math.floor(timeoutMs) * 2, resolved.remoteCdpHandshakeTimeoutMs);
+    }
+    return resolved.remoteCdpHandshakeTimeoutMs;
+  };
+
+  const isReachable = async (timeoutMs?: number) => {
+    const httpTimeout = resolveRemoteHttpTimeout(timeoutMs);
+    const wsTimeout = resolveRemoteWsTimeout(timeoutMs);
+    return await isChromeCdpReady(profile.cdpUrl, httpTimeout, wsTimeout);
+  };
+
+  const isHttpReachable = async (timeoutMs?: number) => {
+    const httpTimeout = resolveRemoteHttpTimeout(timeoutMs);
+    return await isChromeReachable(profile.cdpUrl, httpTimeout);
   };
 
   const attachRunning = (running: NonNullable<ProfileRuntimeState["running"]>) => {
@@ -276,32 +345,60 @@ function createProfileContext(
 
   const ensureTabAvailable = async (targetId?: string): Promise<BrowserTab> => {
     await ensureBrowserAvailable();
+    const profileState = getProfileState();
     const tabs1 = await listTabs();
     if (tabs1.length === 0) {
+      if (profile.driver === "extension") {
+        throw new Error(
+          `tab not found (no attached Chrome tabs for profile "${profile.name}"). ` +
+            "Click the Clawdbot Browser Relay toolbar icon on the tab you want to control (badge ON).",
+        );
+      }
       await openTab("about:blank");
     }
 
     const tabs = await listTabs();
-    const chosen = targetId
-      ? (() => {
-          const resolved = resolveTargetIdFromTabs(targetId, tabs);
-          if (!resolved.ok) {
-            if (resolved.reason === "ambiguous") return "AMBIGUOUS" as const;
-            return null;
-          }
-          return tabs.find((t) => t.targetId === resolved.targetId) ?? null;
-        })()
-      : (tabs.at(0) ?? null);
+    // For remote profiles using Playwright's persistent connection, we don't need wsUrl
+    // because we access pages directly through Playwright, not via individual WebSocket URLs.
+    const candidates =
+      profile.driver === "extension" || !profile.cdpIsLoopback
+        ? tabs
+        : tabs.filter((t) => Boolean(t.wsUrl));
+
+    const resolveById = (raw: string) => {
+      const resolved = resolveTargetIdFromTabs(raw, candidates);
+      if (!resolved.ok) {
+        if (resolved.reason === "ambiguous") return "AMBIGUOUS" as const;
+        return null;
+      }
+      return candidates.find((t) => t.targetId === resolved.targetId) ?? null;
+    };
+
+    const pickDefault = () => {
+      const last = profileState.lastTargetId?.trim() || "";
+      const lastResolved = last ? resolveById(last) : null;
+      if (lastResolved && lastResolved !== "AMBIGUOUS") return lastResolved;
+      // Prefer a real page tab first (avoid service workers/background targets).
+      const page = candidates.find((t) => (t.type ?? "page") === "page");
+      return page ?? candidates.at(0) ?? null;
+    };
+
+    let chosen = targetId ? resolveById(targetId) : pickDefault();
+    if (!chosen && profile.driver === "extension" && candidates.length === 1) {
+      // If an agent passes a stale/foreign targetId but we only have a single attached tab,
+      // recover by using that tab instead of failing hard.
+      chosen = candidates[0] ?? null;
+    }
 
     if (chosen === "AMBIGUOUS") {
       throw new Error("ambiguous target id prefix");
     }
-    if (!chosen?.wsUrl) throw new Error("tab not found");
+    if (!chosen) throw new Error("tab not found");
+    profileState.lastTargetId = chosen.targetId;
     return chosen;
   };
 
   const focusTab = async (targetId: string): Promise<void> => {
-    const base = profile.cdpUrl.replace(/\/$/, "");
     const tabs = await listTabs();
     const resolved = resolveTargetIdFromTabs(targetId, tabs);
     if (!resolved.ok) {
@@ -310,11 +407,28 @@ function createProfileContext(
       }
       throw new Error("tab not found");
     }
-    await fetchOk(`${base}/json/activate/${resolved.targetId}`);
+
+    if (!profile.cdpIsLoopback) {
+      const mod = await getPwAiModule({ mode: "strict" });
+      const focusPageByTargetIdViaPlaywright = (mod as Partial<PwAiModule> | null)
+        ?.focusPageByTargetIdViaPlaywright;
+      if (typeof focusPageByTargetIdViaPlaywright === "function") {
+        await focusPageByTargetIdViaPlaywright({
+          cdpUrl: profile.cdpUrl,
+          targetId: resolved.targetId,
+        });
+        const profileState = getProfileState();
+        profileState.lastTargetId = resolved.targetId;
+        return;
+      }
+    }
+
+    await fetchOk(appendCdpPath(profile.cdpUrl, `/json/activate/${resolved.targetId}`));
+    const profileState = getProfileState();
+    profileState.lastTargetId = resolved.targetId;
   };
 
   const closeTab = async (targetId: string): Promise<void> => {
-    const base = profile.cdpUrl.replace(/\/$/, "");
     const tabs = await listTabs();
     const resolved = resolveTargetIdFromTabs(targetId, tabs);
     if (!resolved.ok) {
@@ -323,7 +437,22 @@ function createProfileContext(
       }
       throw new Error("tab not found");
     }
-    await fetchOk(`${base}/json/close/${resolved.targetId}`);
+
+    // For remote profiles, use Playwright's persistent connection to close tabs
+    if (!profile.cdpIsLoopback) {
+      const mod = await getPwAiModule({ mode: "strict" });
+      const closePageByTargetIdViaPlaywright = (mod as Partial<PwAiModule> | null)
+        ?.closePageByTargetIdViaPlaywright;
+      if (typeof closePageByTargetIdViaPlaywright === "function") {
+        await closePageByTargetIdViaPlaywright({
+          cdpUrl: profile.cdpUrl,
+          targetId: resolved.targetId,
+        });
+        return;
+      }
+    }
+
+    await fetchOk(appendCdpPath(profile.cdpUrl, `/json/close/${resolved.targetId}`));
   };
 
   const stopRunningBrowser = async (): Promise<{ stopped: boolean }> => {
@@ -476,7 +605,7 @@ export function createBrowserRouteContext(opts: ContextOptions): BrowserRouteCon
       return { status: 409, message: "ambiguous target id prefix" };
     }
     if (msg.includes("tab not found")) {
-      return { status: 404, message: "tab not found" };
+      return { status: 404, message: msg };
     }
     if (msg.includes("not found")) {
       return { status: 404, message: msg };

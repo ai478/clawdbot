@@ -7,6 +7,7 @@ import { defaultRuntime } from "../../runtime.js";
 import { formatDocsLink } from "../../terminal/links.js";
 import { colorize, isRich, theme } from "../../terminal/theme.js";
 import { withProgress } from "../progress.js";
+import { runCommandWithRuntime } from "../cli-utils.js";
 import { callGatewayCli, gatewayCallOpts } from "./call.js";
 import type { GatewayDiscoverOpts } from "./discover.js";
 import {
@@ -17,6 +18,37 @@ import {
   renderBeaconLines,
 } from "./discover.js";
 import { addGatewayRunCommand } from "./run.js";
+
+function styleHealthChannelLine(line: string, rich: boolean): string {
+  if (!rich) return line;
+  const colon = line.indexOf(":");
+  if (colon === -1) return line;
+
+  const label = line.slice(0, colon + 1);
+  const detail = line.slice(colon + 1).trimStart();
+  const normalized = detail.toLowerCase();
+
+  const applyPrefix = (prefix: string, color: (value: string) => string) =>
+    `${label} ${color(detail.slice(0, prefix.length))}${detail.slice(prefix.length)}`;
+
+  if (normalized.startsWith("failed")) return applyPrefix("failed", theme.error);
+  if (normalized.startsWith("ok")) return applyPrefix("ok", theme.success);
+  if (normalized.startsWith("linked")) return applyPrefix("linked", theme.success);
+  if (normalized.startsWith("configured")) return applyPrefix("configured", theme.success);
+  if (normalized.startsWith("not linked")) return applyPrefix("not linked", theme.warn);
+  if (normalized.startsWith("not configured")) return applyPrefix("not configured", theme.muted);
+  if (normalized.startsWith("unknown")) return applyPrefix("unknown", theme.warn);
+
+  return line;
+}
+
+function runGatewayCommand(action: () => Promise<void>, label?: string) {
+  return runCommandWithRuntime(defaultRuntime, action, (err) => {
+    const message = String(err);
+    defaultRuntime.error(label ? `${label}: ${message}` : message);
+    defaultRuntime.exit(1);
+  });
+}
 
 export function registerGatewayCli(program: Command) {
   const gateway = addGatewayRunCommand(
@@ -44,7 +76,7 @@ export function registerGatewayCli(program: Command) {
       .argument("<method>", "Method name (health/status/system-presence/cron.*)")
       .option("--params <json>", "JSON object string for params", "{}")
       .action(async (method, opts) => {
-        try {
+        await runGatewayCommand(async () => {
           const params = JSON.parse(String(opts.params ?? "{}"));
           const result = await callGatewayCli(method, opts, params);
           if (opts.json) {
@@ -56,10 +88,7 @@ export function registerGatewayCli(program: Command) {
             `${colorize(rich, theme.heading, "Gateway call")}: ${colorize(rich, theme.muted, String(method))}`,
           );
           defaultRuntime.log(JSON.stringify(result, null, 2));
-        } catch (err) {
-          defaultRuntime.error(`Gateway call failed: ${String(err)}`);
-          defaultRuntime.exit(1);
-        }
+        }, "Gateway call failed");
       }),
   );
 
@@ -68,7 +97,7 @@ export function registerGatewayCli(program: Command) {
       .command("health")
       .description("Fetch Gateway health")
       .action(async (opts) => {
-        try {
+        await runGatewayCommand(async () => {
           const result = await callGatewayCli("health", opts);
           if (opts.json) {
             defaultRuntime.log(JSON.stringify(result, null, 2));
@@ -84,13 +113,10 @@ export function registerGatewayCli(program: Command) {
           );
           if (obj.channels && typeof obj.channels === "object") {
             for (const line of formatHealthChannelLines(obj as HealthSummary)) {
-              defaultRuntime.log(line);
+              defaultRuntime.log(styleHealthChannelLine(line, rich));
             }
           }
-        } catch (err) {
-          defaultRuntime.error(String(err));
-          defaultRuntime.exit(1);
-        }
+        });
       }),
   );
 
@@ -106,12 +132,9 @@ export function registerGatewayCli(program: Command) {
     .option("--timeout <ms>", "Overall probe budget in ms", "3000")
     .option("--json", "Output JSON", false)
     .action(async (opts) => {
-      try {
+      await runGatewayCommand(async () => {
         await gatewayStatusCommand(opts, defaultRuntime);
-      } catch (err) {
-        defaultRuntime.error(String(err));
-        defaultRuntime.exit(1);
-      }
+      });
     });
 
   gateway
@@ -122,7 +145,7 @@ export function registerGatewayCli(program: Command) {
     .option("--timeout <ms>", "Per-command timeout in ms", "2000")
     .option("--json", "Output JSON", false)
     .action(async (opts: GatewayDiscoverOpts) => {
-      try {
+      await runGatewayCommand(async () => {
         const timeoutMs = parseDiscoverTimeoutMs(opts.timeout, 2000);
         const beacons = await withProgress(
           {
@@ -177,9 +200,6 @@ export function registerGatewayCli(program: Command) {
             defaultRuntime.log(line);
           }
         }
-      } catch (err) {
-        defaultRuntime.error(`gateway discover failed: ${String(err)}`);
-        defaultRuntime.exit(1);
-      }
+      }, "gateway discover failed");
     });
 }

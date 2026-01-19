@@ -5,7 +5,7 @@ import {
   GroupChatSchema,
   HumanDelaySchema,
   IdentitySchema,
-  ToolsAudioTranscriptionSchema,
+  ToolsMediaSchema,
 } from "./zod-schema.core.js";
 
 export const HeartbeatSchema = z
@@ -30,6 +30,7 @@ export const HeartbeatSchema = z
     prompt: z.string().optional(),
     ackMaxChars: z.number().int().nonnegative().optional(),
   })
+  .strict()
   .superRefine((val, ctx) => {
     if (!val.every) return;
     try {
@@ -66,10 +67,12 @@ export const SandboxDockerSchema = z
         z.union([
           z.string(),
           z.number(),
-          z.object({
-            soft: z.number().int().nonnegative().optional(),
-            hard: z.number().int().nonnegative().optional(),
-          }),
+          z
+            .object({
+              soft: z.number().int().nonnegative().optional(),
+              hard: z.number().int().nonnegative().optional(),
+            })
+            .strict(),
         ]),
       )
       .optional(),
@@ -81,6 +84,7 @@ export const SandboxDockerSchema = z
     volumes: z.array(z.string()).optional(),
     mounts: z.array(z.string()).optional(),
   })
+  .strict()
   .optional();
 
 export const SandboxBrowserSchema = z
@@ -100,6 +104,7 @@ export const SandboxBrowserSchema = z
     autoStart: z.boolean().optional(),
     autoStartTimeoutMs: z.number().int().positive().optional(),
   })
+  .strict()
   .optional();
 
 export const SandboxPruneSchema = z
@@ -107,6 +112,7 @@ export const SandboxPruneSchema = z
     idleHours: z.number().int().nonnegative().optional(),
     maxAgeDays: z.number().int().nonnegative().optional(),
   })
+  .strict()
   .optional();
 
 export const ToolPolicySchema = z
@@ -114,6 +120,7 @@ export const ToolPolicySchema = z
     allow: z.array(z.string()).optional(),
     deny: z.array(z.string()).optional(),
   })
+  .strict()
   .optional();
 
 export const ToolsWebSearchSchema = z
@@ -125,6 +132,7 @@ export const ToolsWebSearchSchema = z
     timeoutSeconds: z.number().int().positive().optional(),
     cacheTtlMinutes: z.number().nonnegative().optional(),
   })
+  .strict()
   .optional();
 
 export const ToolsWebFetchSchema = z
@@ -135,6 +143,7 @@ export const ToolsWebFetchSchema = z
     cacheTtlMinutes: z.number().nonnegative().optional(),
     userAgent: z.string().optional(),
   })
+  .strict()
   .optional();
 
 export const ToolsWebSchema = z
@@ -142,17 +151,20 @@ export const ToolsWebSchema = z
     search: ToolsWebSearchSchema,
     fetch: ToolsWebFetchSchema,
   })
+  .strict()
   .optional();
 
 export const ToolProfileSchema = z
   .union([z.literal("minimal"), z.literal("coding"), z.literal("messaging"), z.literal("full")])
   .optional();
 
-export const ToolPolicyWithProfileSchema = z.object({
-  allow: z.array(z.string()).optional(),
-  deny: z.array(z.string()).optional(),
-  profile: ToolProfileSchema,
-});
+export const ToolPolicyWithProfileSchema = z
+  .object({
+    allow: z.array(z.string()).optional(),
+    deny: z.array(z.string()).optional(),
+    profile: ToolProfileSchema,
+  })
+  .strict();
 
 // Provider docking: allowlists keyed by provider id (no schema updates when adding providers).
 export const ElevatedAllowFromSchema = z
@@ -171,6 +183,7 @@ export const AgentSandboxSchema = z
     browser: SandboxBrowserSchema,
     prune: SandboxPruneSchema,
   })
+  .strict()
   .optional();
 
 export const AgentToolsSchema = z
@@ -184,45 +197,99 @@ export const AgentToolsSchema = z
         enabled: z.boolean().optional(),
         allowFrom: ElevatedAllowFromSchema,
       })
+      .strict()
+      .optional(),
+    exec: z
+      .object({
+        host: z.enum(["sandbox", "gateway", "node"]).optional(),
+        security: z.enum(["deny", "allowlist", "full"]).optional(),
+        ask: z.enum(["off", "on-miss", "always"]).optional(),
+        node: z.string().optional(),
+        pathPrepend: z.array(z.string()).optional(),
+        backgroundMs: z.number().int().positive().optional(),
+        timeoutSec: z.number().int().positive().optional(),
+        cleanupMs: z.number().int().positive().optional(),
+        notifyOnExit: z.boolean().optional(),
+        applyPatch: z
+          .object({
+            enabled: z.boolean().optional(),
+            allowModels: z.array(z.string()).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
       .optional(),
     sandbox: z
       .object({
         tools: ToolPolicySchema,
       })
+      .strict()
       .optional(),
   })
+  .strict()
   .optional();
 
 export const MemorySearchSchema = z
   .object({
     enabled: z.boolean().optional(),
-    provider: z.union([z.literal("openai"), z.literal("local")]).optional(),
+    sources: z.array(z.union([z.literal("memory"), z.literal("sessions")])).optional(),
+    experimental: z
+      .object({
+        sessionMemory: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    provider: z.union([z.literal("openai"), z.literal("local"), z.literal("gemini")]).optional(),
     remote: z
       .object({
         baseUrl: z.string().optional(),
         apiKey: z.string().optional(),
         headers: z.record(z.string(), z.string()).optional(),
+        batch: z
+          .object({
+            enabled: z.boolean().optional(),
+            wait: z.boolean().optional(),
+            concurrency: z.number().int().positive().optional(),
+            pollIntervalMs: z.number().int().nonnegative().optional(),
+            timeoutMinutes: z.number().int().positive().optional(),
+          })
+          .strict()
+          .optional(),
       })
+      .strict()
       .optional(),
-    fallback: z.union([z.literal("openai"), z.literal("none")]).optional(),
+    fallback: z
+      .union([z.literal("openai"), z.literal("gemini"), z.literal("local"), z.literal("none")])
+      .optional(),
     model: z.string().optional(),
     local: z
       .object({
         modelPath: z.string().optional(),
         modelCacheDir: z.string().optional(),
       })
+      .strict()
       .optional(),
     store: z
       .object({
         driver: z.literal("sqlite").optional(),
         path: z.string().optional(),
+        vector: z
+          .object({
+            enabled: z.boolean().optional(),
+            extensionPath: z.string().optional(),
+          })
+          .strict()
+          .optional(),
       })
+      .strict()
       .optional(),
     chunking: z
       .object({
         tokens: z.number().int().positive().optional(),
         overlap: z.number().int().nonnegative().optional(),
       })
+      .strict()
       .optional(),
     sync: z
       .object({
@@ -232,50 +299,77 @@ export const MemorySearchSchema = z
         watchDebounceMs: z.number().int().nonnegative().optional(),
         intervalMinutes: z.number().int().nonnegative().optional(),
       })
+      .strict()
       .optional(),
     query: z
       .object({
         maxResults: z.number().int().positive().optional(),
         minScore: z.number().min(0).max(1).optional(),
+        hybrid: z
+          .object({
+            enabled: z.boolean().optional(),
+            vectorWeight: z.number().min(0).max(1).optional(),
+            textWeight: z.number().min(0).max(1).optional(),
+            candidateMultiplier: z.number().int().positive().optional(),
+          })
+          .strict()
+          .optional(),
       })
+      .strict()
+      .optional(),
+    cache: z
+      .object({
+        enabled: z.boolean().optional(),
+        maxEntries: z.number().int().positive().optional(),
+      })
+      .strict()
       .optional(),
   })
+  .strict()
   .optional();
 export const AgentModelSchema = z.union([
   z.string(),
-  z.object({
-    primary: z.string().optional(),
-    fallbacks: z.array(z.string()).optional(),
-  }),
-]);
-export const AgentEntrySchema = z.object({
-  id: z.string(),
-  default: z.boolean().optional(),
-  name: z.string().optional(),
-  workspace: z.string().optional(),
-  agentDir: z.string().optional(),
-  model: AgentModelSchema.optional(),
-  memorySearch: MemorySearchSchema,
-  humanDelay: HumanDelaySchema.optional(),
-  identity: IdentitySchema,
-  groupChat: GroupChatSchema,
-  subagents: z
+  z
     .object({
-      allowAgents: z.array(z.string()).optional(),
-      model: z
-        .union([
-          z.string(),
-          z.object({
-            primary: z.string().optional(),
-            fallbacks: z.array(z.string()).optional(),
-          }),
-        ])
-        .optional(),
+      primary: z.string().optional(),
+      fallbacks: z.array(z.string()).optional(),
     })
-    .optional(),
-  sandbox: AgentSandboxSchema,
-  tools: AgentToolsSchema,
-});
+    .strict(),
+]);
+export const AgentEntrySchema = z
+  .object({
+    id: z.string(),
+    default: z.boolean().optional(),
+    name: z.string().optional(),
+    workspace: z.string().optional(),
+    agentDir: z.string().optional(),
+    model: AgentModelSchema.optional(),
+    memorySearch: MemorySearchSchema,
+    humanDelay: HumanDelaySchema.optional(),
+    heartbeat: HeartbeatSchema,
+    identity: IdentitySchema,
+    groupChat: GroupChatSchema,
+    subagents: z
+      .object({
+        allowAgents: z.array(z.string()).optional(),
+        model: z
+          .union([
+            z.string(),
+            z
+              .object({
+                primary: z.string().optional(),
+                fallbacks: z.array(z.string()).optional(),
+              })
+              .strict(),
+          ])
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    sandbox: AgentSandboxSchema,
+    tools: AgentToolsSchema,
+  })
+  .strict();
 
 export const ToolsSchema = z
   .object({
@@ -284,52 +378,81 @@ export const ToolsSchema = z
     deny: z.array(z.string()).optional(),
     byProvider: z.record(z.string(), ToolPolicyWithProfileSchema).optional(),
     web: ToolsWebSchema,
-    audio: z
+    media: ToolsMediaSchema,
+    message: z
       .object({
-        transcription: ToolsAudioTranscriptionSchema,
+        allowCrossContextSend: z.boolean().optional(),
+        crossContext: z
+          .object({
+            allowWithinProvider: z.boolean().optional(),
+            allowAcrossProviders: z.boolean().optional(),
+            marker: z
+              .object({
+                enabled: z.boolean().optional(),
+                prefix: z.string().optional(),
+                suffix: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+        broadcast: z
+          .object({
+            enabled: z.boolean().optional(),
+          })
+          .strict()
+          .optional(),
       })
+      .strict()
       .optional(),
     agentToAgent: z
       .object({
         enabled: z.boolean().optional(),
         allow: z.array(z.string()).optional(),
       })
+      .strict()
       .optional(),
     elevated: z
       .object({
         enabled: z.boolean().optional(),
         allowFrom: ElevatedAllowFromSchema,
       })
+      .strict()
       .optional(),
     exec: z
       .object({
+        host: z.enum(["sandbox", "gateway", "node"]).optional(),
+        security: z.enum(["deny", "allowlist", "full"]).optional(),
+        ask: z.enum(["off", "on-miss", "always"]).optional(),
+        node: z.string().optional(),
+        pathPrepend: z.array(z.string()).optional(),
         backgroundMs: z.number().int().positive().optional(),
         timeoutSec: z.number().int().positive().optional(),
         cleanupMs: z.number().int().positive().optional(),
+        notifyOnExit: z.boolean().optional(),
         applyPatch: z
           .object({
             enabled: z.boolean().optional(),
             allowModels: z.array(z.string()).optional(),
           })
+          .strict()
           .optional(),
       })
-      .optional(),
-    bash: z
-      .object({
-        backgroundMs: z.number().int().positive().optional(),
-        timeoutSec: z.number().int().positive().optional(),
-        cleanupMs: z.number().int().positive().optional(),
-      })
+      .strict()
       .optional(),
     subagents: z
       .object({
         tools: ToolPolicySchema,
       })
+      .strict()
       .optional(),
     sandbox: z
       .object({
         tools: ToolPolicySchema,
       })
+      .strict()
       .optional(),
   })
+  .strict()
   .optional();

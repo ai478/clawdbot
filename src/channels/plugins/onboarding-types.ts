@@ -15,6 +15,7 @@ export type SetupChannelsOptions = {
   promptWhatsAppAccountId?: boolean;
   onWhatsAppAccountId?: (accountId: string) => void;
   forceAllowFromChannels?: ChannelId[];
+  skipStatusNote?: boolean;
   skipDmPolicyPrompt?: boolean;
   skipConfirm?: boolean;
   quickstartDefaults?: boolean;
@@ -68,6 +69,11 @@ export type ChannelOnboardingDmPolicy = {
   allowFromKey: string;
   getCurrent: (cfg: ClawdbotConfig) => DmPolicy;
   setPolicy: (cfg: ClawdbotConfig, policy: DmPolicy) => ClawdbotConfig;
+  promptAllowFrom?: (params: {
+    cfg: ClawdbotConfig;
+    prompter: WizardPrompter;
+    accountId?: string;
+  }) => Promise<ClawdbotConfig>;
 };
 
 export type ChannelOnboardingAdapter = {

@@ -4,6 +4,7 @@ import type { MsgContext } from "../../auto-reply/templating.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 import type { PollInput } from "../../polls.js";
 import type { GatewayClientMode, GatewayClientName } from "../../utils/message-channel.js";
+import type { NormalizedChatType } from "../chat-type.js";
 import type { ChatChannelId } from "../registry.js";
 import type { ChannelMessageActionName as ChannelMessageActionNameFromList } from "./message-action-names.js";
 
@@ -31,6 +32,12 @@ export type ChannelSetupInput = {
   httpHost?: string;
   httpPort?: string;
   useEnv?: boolean;
+  homeserver?: string;
+  userId?: string;
+  accessToken?: string;
+  password?: string;
+  deviceName?: string;
+  initialSyncLimit?: number;
 };
 
 export type ChannelStatusIssue = {
@@ -126,13 +133,14 @@ export type ChannelLogSink = {
 export type ChannelGroupContext = {
   cfg: ClawdbotConfig;
   groupId?: string | null;
-  groupRoom?: string | null;
+  /** Human label for channel-like group conversations (e.g. #general). */
+  groupChannel?: string | null;
   groupSpace?: string | null;
   accountId?: string | null;
 };
 
 export type ChannelCapabilities = {
-  chatTypes: Array<"direct" | "group" | "channel" | "thread">;
+  chatTypes: Array<NormalizedChatType | "thread">;
   polls?: boolean;
   reactions?: boolean;
   threads?: boolean;
@@ -196,10 +204,12 @@ export type ChannelThreadingContext = {
   To?: string;
   ReplyToId?: string;
   ThreadLabel?: string;
+  MessageThreadId?: string | number;
 };
 
 export type ChannelThreadingToolContext = {
   currentChannelId?: string;
+  currentChannelProvider?: ChannelId;
   currentThreadTs?: string;
   replyToMode?: "off" | "first" | "all";
   hasRepliedRef?: { value: boolean };
@@ -207,6 +217,27 @@ export type ChannelThreadingToolContext = {
 
 export type ChannelMessagingAdapter = {
   normalizeTarget?: (raw: string) => string | undefined;
+  targetResolver?: {
+    looksLikeId?: (raw: string, normalized?: string) => boolean;
+    hint?: string;
+  };
+  formatTargetDisplay?: (params: {
+    target: string;
+    display?: string;
+    kind?: ChannelDirectoryEntryKind;
+  }) => string;
+};
+
+export type ChannelDirectoryEntryKind = "user" | "group" | "channel";
+
+export type ChannelDirectoryEntry = {
+  kind: ChannelDirectoryEntryKind;
+  id: string;
+  name?: string;
+  handle?: string;
+  avatarUrl?: string;
+  rank?: number;
+  raw?: unknown;
 };
 
 export type ChannelMessageActionName = ChannelMessageActionNameFromList;

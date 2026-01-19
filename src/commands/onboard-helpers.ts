@@ -13,11 +13,12 @@ import { callGateway } from "../gateway/call.js";
 import { normalizeControlUiBasePath } from "../gateway/control-ui.js";
 import { isSafeExecutableValue } from "../infra/exec-safety.js";
 import { pickPrimaryTailnetIPv4 } from "../infra/tailnet.js";
+import { isWSL } from "../infra/wsl.js";
 import { runCommandWithTimeout } from "../process/exec.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { stylePromptTitle } from "../terminal/prompt-style.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
-import { CONFIG_DIR, resolveUserPath } from "../utils.js";
+import { CONFIG_DIR, resolveUserPath, sleep } from "../utils.js";
 import { VERSION } from "../version.js";
 import type { NodeManagerChoice, OnboardMode, ResetScope } from "./onboard-types.js";
 
@@ -90,27 +91,6 @@ type BrowserOpenSupport = {
   reason?: string;
   command?: string;
 };
-
-let wslCached: boolean | null = null;
-
-async function isWSL(): Promise<boolean> {
-  if (wslCached !== null) return wslCached;
-  if (process.platform !== "linux") {
-    wslCached = false;
-    return wslCached;
-  }
-  if (process.env.WSL_INTEROP || process.env.WSL_DISTRO_NAME || process.env.WSLENV) {
-    wslCached = true;
-    return wslCached;
-  }
-  try {
-    const release = (await fs.readFile("/proc/version", "utf8")).toLowerCase();
-    wslCached = release.includes("microsoft") || release.includes("wsl");
-  } catch {
-    wslCached = false;
-  }
-  return wslCached;
-}
 
 type BrowserOpenCommand = {
   argv: string[] | null;
@@ -331,6 +311,38 @@ export async function probeGatewayReachable(params: {
   } catch (err) {
     return { ok: false, detail: summarizeError(err) };
   }
+}
+
+export async function waitForGatewayReachable(params: {
+  url: string;
+  token?: string;
+  password?: string;
+  /** Total time to wait before giving up. */
+  deadlineMs?: number;
+  /** Per-probe timeout (each probe makes a full gateway health request). */
+  probeTimeoutMs?: number;
+  /** Delay between probes. */
+  pollMs?: number;
+}): Promise<{ ok: boolean; detail?: string }> {
+  const deadlineMs = params.deadlineMs ?? 15_000;
+  const pollMs = params.pollMs ?? 400;
+  const probeTimeoutMs = params.probeTimeoutMs ?? 1500;
+  const startedAt = Date.now();
+  let lastDetail: string | undefined;
+
+  while (Date.now() - startedAt < deadlineMs) {
+    const probe = await probeGatewayReachable({
+      url: params.url,
+      token: params.token,
+      password: params.password,
+      timeoutMs: probeTimeoutMs,
+    });
+    if (probe.ok) return probe;
+    lastDetail = probe.detail;
+    await sleep(pollMs);
+  }
+
+  return { ok: false, detail: lastDetail };
 }
 
 function summarizeError(err: unknown): string {

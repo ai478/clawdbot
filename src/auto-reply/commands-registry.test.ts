@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   buildCommandText,
@@ -10,6 +10,16 @@ import {
   normalizeCommandBody,
   shouldHandleTextCommands,
 } from "./commands-registry.js";
+import { setActivePluginRegistry } from "../plugins/runtime.js";
+import { createTestRegistry } from "../test-utils/channel-plugins.js";
+
+beforeEach(() => {
+  setActivePluginRegistry(createTestRegistry([]));
+});
+
+afterEach(() => {
+  setActivePluginRegistry(createTestRegistry([]));
+});
 
 describe("commands registry", () => {
   it("builds command text with args", () => {
@@ -43,6 +53,29 @@ describe("commands registry", () => {
     });
     expect(nativeDisabled.find((spec) => spec.name === "config")).toBeFalsy();
     expect(nativeDisabled.find((spec) => spec.name === "debug")).toBeFalsy();
+  });
+
+  it("appends skill commands when provided", () => {
+    const skillCommands = [
+      {
+        name: "demo_skill",
+        skillName: "demo-skill",
+        description: "Demo skill",
+      },
+    ];
+    const commands = listChatCommandsForConfig(
+      {
+        commands: { config: false, debug: false },
+      },
+      { skillCommands },
+    );
+    expect(commands.find((spec) => spec.nativeName === "demo_skill")).toBeTruthy();
+
+    const native = listNativeCommandSpecsForConfig(
+      { commands: { config: false, debug: false, native: true } },
+      { skillCommands },
+    );
+    expect(native.find((spec) => spec.name === "demo_skill")).toBeTruthy();
   });
 
   it("detects known text commands", () => {

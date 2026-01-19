@@ -2,7 +2,9 @@ import { buildWorkspaceSkillStatus } from "../agents/skills-status.js";
 import { withProgress } from "../cli/progress.js";
 import { loadConfig, readConfigFileSnapshot, resolveGatewayPort } from "../config/config.js";
 import { readLastGatewayErrorLine } from "../daemon/diagnostics.js";
+import type { GatewayService } from "../daemon/service.js";
 import { resolveGatewayService } from "../daemon/service.js";
+import { resolveNodeService } from "../daemon/node-service.js";
 import { buildGatewayConnectionDetails, callGateway } from "../gateway/call.js";
 import { normalizeControlUiBasePath } from "../gateway/control-ui.js";
 import { probeGateway } from "../gateway/probe.js";
@@ -13,6 +15,7 @@ import { inspectPortUsage } from "../infra/ports.js";
 import { readRestartSentinel } from "../infra/restart-sentinel.js";
 import { readTailscaleStatusJson } from "../infra/tailscale.js";
 import { checkUpdateStatus, compareSemverStrings } from "../infra/update-check.js";
+import { getRemoteSkillEligibility } from "../infra/skills-remote.js";
 import { runExec } from "../process/exec.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { VERSION } from "../version.js";
@@ -118,22 +121,22 @@ export async function statusAllCommand(
 
     const localFallbackAuth = resolveProbeAuth("local");
     const remoteAuth = resolveProbeAuth("remote");
+    const probeAuth = isRemoteMode && !remoteUrlMissing ? remoteAuth : localFallbackAuth;
 
     const gatewayProbe = await probeGateway({
       url: connection.url,
-      auth: remoteUrlMissing ? localFallbackAuth : remoteAuth,
+      auth: probeAuth,
       timeoutMs: Math.min(5000, opts?.timeoutMs ?? 10_000),
     }).catch(() => null);
     const gatewayReachable = gatewayProbe?.ok === true;
     const gatewaySelf = pickGatewaySelfPresence(gatewayProbe?.presence ?? null);
     progress.tick();
 
-    progress.setLabel("Checking daemon…");
-    const daemon = await (async () => {
+    progress.setLabel("Checking services…");
+    const readServiceSummary = async (service: GatewayService) => {
       try {
-        const service = resolveGatewayService();
         const [loaded, runtimeInfo, command] = await Promise.all([
-          service.isLoaded({ profile: process.env.CLAWDBOT_PROFILE }).catch(() => false),
+          service.isLoaded({ env: process.env }).catch(() => false),
           service.readRuntime(process.env).catch(() => undefined),
           service.readCommand(process.env).catch(() => null),
         ]);
@@ -148,7 +151,9 @@ export async function statusAllCommand(
       } catch {
         return null;
       }
-    })();
+    };
+    const daemon = await readServiceSummary(resolveGatewayService());
+    const nodeService = await readServiceSummary(resolveNodeService());
     progress.tick();
 
     progress.setLabel("Scanning agents…");
@@ -217,6 +222,7 @@ export async function statusAllCommand(
             try {
               return buildWorkspaceSkillStatus(defaultWorkspace, {
                 config: cfg,
+                eligibility: { remote: getRemoteSkillEligibility() },
               });
             } catch {
               return null;
@@ -288,9 +294,7 @@ export async function statusAllCommand(
       : gatewayProbe?.error
         ? `unreachable (${gatewayProbe.error})`
         : "unreachable";
-    const gatewayAuth = gatewayReachable
-      ? ` · auth ${formatGatewayAuthUsed(remoteUrlMissing ? localFallbackAuth : remoteAuth)}`
-      : "";
+    const gatewayAuth = gatewayReachable ? ` · auth ${formatGatewayAuthUsed(probeAuth)}` : "";
     const gatewaySelfLine =
       gatewaySelf?.host || gatewaySelf?.ip || gatewaySelf?.version || gatewaySelf?.platform
         ? [
@@ -339,13 +343,22 @@ export async function statusAllCommand(
         : { Item: "Gateway self", Value: "unknown" },
       daemon
         ? {
-            Item: "Daemon",
+            Item: "Gateway service",
             Value:
               daemon.installed === false
                 ? `${daemon.label} not installed`
                 : `${daemon.label} ${daemon.installed ? "installed · " : ""}${daemon.loadedText}${daemon.runtime?.status ? ` · ${daemon.runtime.status}` : ""}${daemon.runtime?.pid ? ` (pid ${daemon.runtime.pid})` : ""}`,
           }
-        : { Item: "Daemon", Value: "unknown" },
+        : { Item: "Gateway service", Value: "unknown" },
+      nodeService
+        ? {
+            Item: "Node service",
+            Value:
+              nodeService.installed === false
+                ? `${nodeService.label} not installed`
+                : `${nodeService.label} ${nodeService.installed ? "installed · " : ""}${nodeService.loadedText}${nodeService.runtime?.status ? ` · ${nodeService.runtime.status}` : ""}${nodeService.runtime?.pid ? ` (pid ${nodeService.runtime.pid})` : ""}`,
+          }
+        : { Item: "Node service", Value: "unknown" },
       {
         Item: "Agents",
         Value: `${agentStatus.agents.length} total · ${agentStatus.bootstrapPendingCount} bootstrapping · ${aliveAgents} active · ${agentStatus.totalSessions} sessions`,

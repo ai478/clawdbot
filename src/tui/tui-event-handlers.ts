@@ -8,10 +8,11 @@ type EventHandlerContext = {
   tui: TUI;
   state: TuiStateAccess;
   setActivityStatus: (text: string) => void;
+  refreshSessionInfo?: () => Promise<void>;
 };
 
 export function createEventHandlers(context: EventHandlerContext) {
-  const { chatLog, tui, state, setActivityStatus } = context;
+  const { chatLog, tui, state, setActivityStatus, refreshSessionInfo } = context;
   const finalizedRuns = new Map<string, number>();
 
   const noteFinalizedRun = (runId: string) => {
@@ -47,6 +48,12 @@ export function createEventHandlers(context: EventHandlerContext) {
       setActivityStatus("streaming");
     }
     if (evt.state === "final") {
+      const stopReason =
+        evt.message && typeof evt.message === "object" && !Array.isArray(evt.message)
+          ? typeof (evt.message as Record<string, unknown>).stopReason === "string"
+            ? ((evt.message as Record<string, unknown>).stopReason as string)
+            : ""
+          : "";
       const text = extractTextFromMessage(evt.message, {
         includeThinking: state.showThinking,
       });
@@ -57,17 +64,21 @@ export function createEventHandlers(context: EventHandlerContext) {
       chatLog.finalizeAssistant(finalText, evt.runId);
       noteFinalizedRun(evt.runId);
       state.activeChatRunId = null;
-      setActivityStatus("idle");
+      setActivityStatus(stopReason === "error" ? "error" : "idle");
+      // Refresh session info to update token counts in footer
+      void refreshSessionInfo?.();
     }
     if (evt.state === "aborted") {
       chatLog.addSystem("run aborted");
       state.activeChatRunId = null;
       setActivityStatus("aborted");
+      void refreshSessionInfo?.();
     }
     if (evt.state === "error") {
       chatLog.addSystem(`run error: ${evt.errorMessage ?? "unknown"}`);
       state.activeChatRunId = null;
       setActivityStatus("error");
+      void refreshSessionInfo?.();
     }
     tui.requestRender();
   };

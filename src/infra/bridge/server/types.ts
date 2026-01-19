@@ -1,3 +1,5 @@
+import type { TlsOptions } from "node:tls";
+
 import type { NodePairingPendingRequest } from "../../node-pairing.js";
 
 export type BridgeHelloFrame = {
@@ -7,6 +9,8 @@ export type BridgeHelloFrame = {
   token?: string;
   platform?: string;
   version?: string;
+  coreVersion?: string;
+  uiVersion?: string;
   deviceFamily?: string;
   modelIdentifier?: string;
   caps?: string[];
@@ -20,6 +24,8 @@ export type BridgePairRequestFrame = {
   displayName?: string;
   platform?: string;
   version?: string;
+  coreVersion?: string;
+  uiVersion?: string;
   deviceFamily?: string;
   modelIdentifier?: string;
   caps?: string[];
@@ -111,6 +117,8 @@ export type NodeBridgeClientInfo = {
   displayName?: string;
   platform?: string;
   version?: string;
+  coreVersion?: string;
+  uiVersion?: string;
   deviceFamily?: string;
   modelIdentifier?: string;
   remoteIp?: string;
@@ -122,6 +130,7 @@ export type NodeBridgeClientInfo = {
 export type NodeBridgeServerOpts = {
   host: string;
   port: number; // 0 = ephemeral
+  tls?: TlsOptions;
   pairingBaseDir?: string;
   canvasHostPort?: number;
   canvasHostHost?: string;

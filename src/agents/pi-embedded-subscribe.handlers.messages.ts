@@ -17,6 +17,7 @@ import {
   formatReasoningMessage,
   promoteThinkingTagsToBlocks,
 } from "./pi-embedded-utils.js";
+import { createInlineCodeState } from "../markdown/code-spans.js";
 
 export function handleMessageStart(
   ctx: EmbeddedPiSubscribeContext,
@@ -103,23 +104,31 @@ export function handleMessageUpdate(
     .stripBlockTags(ctx.state.deltaBuffer, {
       thinking: false,
       final: false,
+      inlineCode: createInlineCodeState(),
     })
     .trim();
   if (next && next !== ctx.state.lastStreamedAssistant) {
+    const previousText = ctx.state.lastStreamedAssistant ?? "";
     ctx.state.lastStreamedAssistant = next;
     const { text: cleanedText, mediaUrls } = parseReplyDirectives(next);
+    const { text: previousCleanedText } = parseReplyDirectives(previousText);
+    const deltaText = cleanedText.startsWith(previousCleanedText)
+      ? cleanedText.slice(previousCleanedText.length)
+      : cleanedText;
     emitAgentEvent({
       runId: ctx.params.runId,
       stream: "assistant",
       data: {
         text: cleanedText,
+        delta: deltaText,
         mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
       },
     });
-    ctx.params.onAgentEvent?.({
+    void ctx.params.onAgentEvent?.({
       stream: "assistant",
       data: {
         text: cleanedText,
+        delta: deltaText,
         mediaUrls: mediaUrls?.length ? mediaUrls : undefined,
       },
     });
@@ -240,5 +249,6 @@ export function handleMessageEnd(
   ctx.blockChunker?.reset();
   ctx.state.blockState.thinking = false;
   ctx.state.blockState.final = false;
+  ctx.state.blockState.inlineCode = createInlineCodeState();
   ctx.state.lastStreamedAssistant = undefined;
 }

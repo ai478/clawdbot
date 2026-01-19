@@ -73,6 +73,11 @@ describe("createClawdbotCodingTools", () => {
     expect(schema.type).toBe("object");
     expect(schema.anyOf).toBeUndefined();
   });
+  it("mentions Chrome extension relay in browser tool description", () => {
+    const browser = createBrowserTool();
+    expect(browser.description).toMatch(/Chrome extension/i);
+    expect(browser.description).toMatch(/profile="chrome"/i);
+  });
   it("keeps browser tool schema properties after normalization", () => {
     const tools = createClawdbotCodingTools();
     const browser = tools.find((tool) => tool.name === "browser");
@@ -124,16 +129,16 @@ describe("createClawdbotCodingTools", () => {
     expect(Array.isArray(action?.enum)).toBe(true);
     expect(action?.enum).toContain("act");
 
-    const format = parameters.properties?.format as
+    const snapshotFormat = parameters.properties?.snapshotFormat as
       | {
           type?: unknown;
           enum?: unknown[];
           anyOf?: unknown[];
         }
       | undefined;
-    expect(format?.type).toBe("string");
-    expect(format?.anyOf).toBeUndefined();
-    expect(format?.enum).toEqual(["aria", "ai"]);
+    expect(snapshotFormat?.type).toBe("string");
+    expect(snapshotFormat?.anyOf).toBeUndefined();
+    expect(snapshotFormat?.enum).toEqual(["aria", "ai"]);
   });
   it("inlines local $ref before removing unsupported keywords", () => {
     const cleaned = __testing.cleanToolSchemaForGemini({
