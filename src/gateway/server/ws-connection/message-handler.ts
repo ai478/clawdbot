@@ -179,8 +179,13 @@ export function attachGatewayWsMessageHandler(params: {
               upgradeReq.url ?? "",
               `http://${requestHost || "localhost"}`,
             );
-            return url.searchParams.get("token") || undefined;
-          } catch {
+            const t = url.searchParams.get("token") || undefined;
+            logWsControl.warn(
+              `DEBUG: token extraction. url=${url.toString()} queryToken=${t} upgradeReq=${upgradeReq.url}`,
+            );
+            return t;
+          } catch (err) {
+            logWsControl.warn(`DEBUG: token extraction failed: ${err}`);
             return undefined;
           }
         })();
@@ -232,6 +237,9 @@ export function attachGatewayWsMessageHandler(params: {
           req: upgradeReq,
         });
         if (!authResult.ok) {
+          logWsControl.warn(
+            `DEBUG: auth failed. result=${JSON.stringify(authResult)} provided=${connectParams.auth?.token} expected=${resolvedAuth.token}`,
+          );
           setHandshakeState("failed");
           logWsControl.warn(
             `unauthorized conn=${connId} remote=${remoteAddr ?? "?"} client=${clientLabel} ${connectParams.client.mode} v${connectParams.client.version}`,
