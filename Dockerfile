@@ -110,6 +110,9 @@ RUN pnpm build
 RUN pnpm ui:install
 RUN pnpm ui:build
 
+# Install Playwright browsers (for browser automation tasks)
+RUN npx playwright install chromium --with-deps
+
 # Create agent-browser alias
 USER root
 RUN echo '#!/bin/bash\nnode /app/dist/entry.js browser "$@"' > /usr/local/bin/agent-browser \
