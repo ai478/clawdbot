@@ -321,9 +321,10 @@
   "gateway": {
     "port": 18789,
     "mode": "local",
-    "bind": "loopback",
+    "bind": "lan",
     "auth": {
-      "mode": "token"
+      "mode": "token",
+      "token": "wondura-gateway-217"
     },
     "tailscale": {
       "mode": "off",

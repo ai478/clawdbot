@@ -44,7 +44,11 @@ import { isAbortError } from "../abort.js";
 import { buildEmbeddedExtensionPaths } from "../extensions.js";
 import { applyExtraParamsToAgent } from "../extra-params.js";
 import { logToolSchemasForGoogle, sanitizeSessionHistory } from "../google.js";
-import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "../history.js";
+import {
+  getDmHistoryLimitFromSessionKey,
+  limitHistoryTokens,
+  limitHistoryTurns,
+} from "../history.js";
 import { log } from "../logger.js";
 import { buildModelAliasLines } from "../model.js";
 import {
@@ -64,6 +68,7 @@ import {
   resolveUserTimezone,
 } from "../utils.js";
 import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
+import { lookupContextTokens } from "../../context.js";
 
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
@@ -102,13 +107,13 @@ export async function runEmbeddedAttempt(
       : [];
     restoreSkillEnv = params.skillsSnapshot
       ? applySkillEnvOverridesFromSnapshot({
-          snapshot: params.skillsSnapshot,
-          config: params.config,
-        })
+        snapshot: params.skillsSnapshot,
+        config: params.config,
+      })
       : applySkillEnvOverrides({
-          skills: skillEntries ?? [],
-          config: params.config,
-        });
+        skills: skillEntries ?? [],
+        config: params.config,
+      });
 
     const skillsPrompt = resolveSkillsPromptForRun({
       skillsSnapshot: params.skillsSnapshot,
@@ -156,10 +161,10 @@ export async function runEmbeddedAttempt(
     const runtimeChannel = normalizeMessageChannel(params.messageChannel ?? params.messageProvider);
     const runtimeCapabilities = runtimeChannel
       ? (resolveChannelCapabilities({
-          cfg: params.config,
-          channel: runtimeChannel,
-          accountId: params.agentAccountId,
-        }) ?? [])
+        cfg: params.config,
+        channel: runtimeChannel,
+        accountId: params.agentAccountId,
+      }) ?? [])
       : undefined;
     const runtimeInfo = {
       host: machineName,
@@ -312,8 +317,13 @@ export async function runEmbeddedAttempt(
           validated,
           getDmHistoryLimitFromSessionKey(params.sessionKey, params.config),
         );
-        if (limited.length > 0) {
-          activeSession.agent.replaceMessages(limited);
+        const contextWindow =
+          lookupContextTokens(params.modelId) ?? (params.model as any)?.contextWindow ?? 200_000;
+        const historyLimit = Math.floor(contextWindow * 0.9);
+        const tokenLimited = limitHistoryTokens(limited, historyLimit);
+
+        if (tokenLimited.length > 0) {
+          activeSession.agent.replaceMessages(tokenLimited);
         }
       } catch (err) {
         sessionManager.flushPendingToolResults?.();

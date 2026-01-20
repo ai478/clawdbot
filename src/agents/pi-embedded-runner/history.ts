@@ -28,6 +28,55 @@ export function limitHistoryTurns(
 }
 
 /**
+ * Estimates token count using a simple character-based heuristic (4 chars = 1 token).
+ */
+export function countMessageTokensHeuristic(message: AgentMessage): number {
+  let chars = 0;
+  const content = (message as { content?: unknown }).content;
+  if (!content) return 0;
+
+  if (typeof content === "string") {
+    chars += content.length;
+  } else if (Array.isArray(content)) {
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const p = part as { type?: string; text?: string; arguments?: unknown; content?: unknown };
+      if (p.type === "text") {
+        chars += p.text?.length ?? 0;
+      } else if (p.type === "toolCall") {
+        chars += JSON.stringify(p.arguments ?? {}).length;
+      } else if (p.type === "toolResult") {
+        chars += String(p.content ?? "").length;
+      }
+    }
+  }
+  return Math.ceil(chars / 4);
+}
+
+/**
+ * Limits conversation history based on estimated token count.
+ * Keeps the most recent messages that fit within the limit.
+ */
+export function limitHistoryTokens(
+  messages: AgentMessage[],
+  maxTokens: number | undefined,
+): AgentMessage[] {
+  if (!maxTokens || maxTokens <= 0 || messages.length === 0) return messages;
+
+  let totalTokens = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const tokens = countMessageTokensHeuristic(messages[i]);
+    if (totalTokens + tokens > maxTokens) {
+      // If we even have one message that's too big, keep at least the last one?
+      // No, for history we just slice what fits.
+      return messages.slice(i + 1);
+    }
+    totalTokens += tokens;
+  }
+  return messages;
+}
+
+/**
  * Extract provider + user ID from a session key and look up dmHistoryLimit.
  * Supports per-DM overrides and provider defaults.
  */
@@ -50,9 +99,9 @@ export function getDmHistoryLimitFromSessionKey(
   const getLimit = (
     providerConfig:
       | {
-          dmHistoryLimit?: number;
-          dms?: Record<string, { historyLimit?: number }>;
-        }
+        dmHistoryLimit?: number;
+        dms?: Record<string, { historyLimit?: number }>;
+      }
       | undefined,
   ): number | undefined => {
     if (!providerConfig) return undefined;
