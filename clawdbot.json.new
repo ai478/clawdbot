@@ -26,7 +26,7 @@
         "workspace": "/home/node/clawd",
         "identity": {
           "name": "Stevie",
-          "theme": "Strategic mind — part Jobs, part Musk. Direct, opinionated, truth-telling. Expert in n8n automation (using n8n-mcp tools) and Supabase database/storage management (using supabase-api.sh helper). Highly efficient, prefers parallel execution, and always validates node configurations explicitly.",
+          "theme": "Strategic mind — part Jobs, part Musk. Direct, opinionated, truth-telling. Expert in n8n automation (using n8n-mcp tools) and Supabase database/storage management (using supabase-api.sh helper). For code tasks, uses Codex CLI via background bash (not sub-agents). Highly efficient, prefers parallel execution.",
           "emoji": "🚀"
         },
         "sandbox": {
@@ -41,7 +41,7 @@
         "workspace": "/home/node/clawd-team",
         "identity": {
           "name": "Stevie Team",
-          "theme": "Main team assistant with SDLC, research, support, and onboarding capabilities. Expert in n8n automation and Supabase operations. Before sensitive operations, I check user role via `/shared/scripts/get-employee.sh` and enforce LLM-based permissions (owners > managers > leads > employees). I can spawn specialized sub-agents for complex tasks. I have access to shared and per-employee skills folders.",
+          "theme": "Main team assistant with SDLC capabilities. For code research and implementation, uses Codex CLI directly via background bash (see AGENTS.md for patterns). Checks user permissions via get-employee.sh. Expert in n8n automation and Supabase operations.",
           "emoji": "👥"
         },
         "sandbox": {
@@ -82,7 +82,7 @@
         "workspace": "/home/node/shared/agents/research",
         "identity": {
           "name": "Researcher",
-          "theme": "Code research specialist. Uses Codex CLI to analyze any project codebase, find patterns, and provide context for feature specs. READ-ONLY — never modifies code. Reports findings with file paths, patterns, and feasibility notes. Task format: 'Research [PROJECT]: [question]'",
+          "theme": "[DORMANT] Code research specialist. Uses Codex CLI to analyze any project codebase, find patterns, and provide context for feature specs. READ-ONLY — never modifies code.",
           "emoji": "🔍"
         },
         "sandbox": {
@@ -94,7 +94,7 @@
         "workspace": "/home/node/shared/agents/coder",
         "identity": {
           "name": "Coder",
-          "theme": "Implementation specialist. Uses Codex CLI --full-auto to implement approved specs on any project. Creates feature branches, writes code following existing patterns, and prepares PRs. Only implements APPROVED specs. Task format: 'Implement [PROJECT] WON-XX: [spec]'",
+          "theme": "[DORMANT] Implementation specialist. Uses Codex CLI --full-auto to implement approved specs on any project.",
           "emoji": "⚙️"
         },
         "sandbox": {
@@ -231,6 +231,16 @@
       "agentId": "team",
       "match": {
         "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "857880083"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
         "accountId": "*"
       }
     },
@@ -296,6 +306,7 @@
         "5148176939",
         "132525959",
         "574133655",
+        "857880083",
         "-5211821786"
       ],
       "groupPolicy": "open",
@@ -305,9 +316,10 @@
   "gateway": {
     "port": 18789,
     "mode": "local",
-    "bind": "loopback",
+    "bind": "lan",
     "auth": {
-      "mode": "token"
+      "mode": "token",
+      "token": "a3f69debbd9544e3aa94e170a185708b7ed1d46971adaaba9b7375077ee8f312"
     },
     "tailscale": {
       "mode": "off",
@@ -354,6 +366,15 @@
       "supabase-edge-functions": {
         "enabled": true
       }
+    }
+  },
+  "memory": {
+    "flush": {
+      "enabled": true,
+      "prompt": "Review the conversation and extract important facts, decisions, and action items. Update MEMORY.md concisely. Remove small talk and keep only valuable information.",
+      "systemPrompt": "You are a memory summarization agent. Extract only the most important information from conversations: key decisions, technical details, action items, and outcomes. Ignore greetings, clarifications, and redundant content.",
+      "softThresholdTokens": 80000,
+      "reserveTokensFloor": 2000
     }
   },
   "mcpServers": {

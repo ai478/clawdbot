@@ -2,12 +2,50 @@
 
 Docs: https://docs.clawd.bot
 
+## 2026.1.21
+
+### Fixes
+- UI: remove the chat stop button and keep the composer aligned to the bottom edge.
+
+## 2026.1.20-1
+
+### Fixes
+- Install: include pnpm patch files in the npm package to avoid postinstall failures.
+
+## 2026.1.20
+
+### Highlights
+- Installer: npm packages now ship pnpm patch files again, fixing `curl | bash` installs.
+
+### Changes
+- Agents: add auto-notify-on-completion guidance for coding-agent background runs.
+- Build: remove the legacy Peekaboo submodule pointer (SPM release already in use).
+
+### Fixes
+- Installer: ship pnpm patch files in the npm tarball so postinstall patches apply correctly.
+- Agents: suppress duplicate assistant text blocks that only differ in trailing whitespace; add a regression test.
+- Slack: fix Bolt ESM/CJS import resolution on Node 25.x and remove duplicate thread metadata. (#1360) — thanks @SocialNerd42069.
+- CLI: fix a duplicate UpdateStepResult import that broke `pnpm build`.
+- macOS: mark Tailscale IP fallback helpers nonisolated to fix Swift 6.2 build failures.
+## 2026.1.19-3
+
+### Changes
+- Android: remove legacy bridge transport code now that nodes use the gateway protocol.
+- Android: send structured payloads in node events/invokes and include user-agent metadata in gateway connects.
+
+### Fixes
+- Slack: respect verbose tool summaries and keep tool notifications threaded. (#1360) — thanks @SocialNerd42069.
+
 ## 2026.1.19-2
 
 ### Changes
 - Android: migrate node transport to the Gateway WebSocket protocol with TLS pinning support + gateway discovery naming.
 - Android: bump okhttp + dnsjava to satisfy lint dependency checks.
 - Docs: refresh Android node discovery docs for the Gateway WS service type.
+
+### Fixes
+- Tests: stabilize Windows gateway/CLI tests by skipping sidecars, normalizing argv, and extending timeouts.
+- CLI: skip runner rebuilds when dist is fresh. (#1231) — thanks @mukhtharcm, @thewilloftheshadow.
 
 ## 2026.1.19-1
 

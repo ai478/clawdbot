@@ -7,6 +7,7 @@ import { streamSimple } from "@mariozechner/pi-ai";
 import { createAgentSession, SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
 
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
+import { listChannelSupportedActions } from "../../channel-tools.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { resolveTelegramInlineButtonsScope } from "../../../telegram/inline-buttons.js";
@@ -42,6 +43,7 @@ import {
   resolveSkillsPromptForRun,
 } from "../../skills.js";
 import { buildSystemPromptReport } from "../../system-prompt-report.js";
+import { resolveDefaultModelForAgent } from "../../model-selection.js";
 
 import { isAbortError } from "../abort.js";
 import { buildEmbeddedExtensionPaths } from "../extensions.js";
@@ -51,7 +53,11 @@ import {
   sanitizeSessionHistory,
   sanitizeToolsForGoogle,
 } from "../google.js";
-import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "../history.js";
+import {
+  getDmHistoryLimitFromSessionKey,
+  limitHistoryTokens,
+  limitHistoryTurns,
+} from "../history.js";
 import { log } from "../logger.js";
 import { buildModelAliasLines } from "../model.js";
 import {
@@ -64,9 +70,11 @@ import { prewarmSessionFile, trackSessionManagerAccess } from "../session-manage
 import { prepareSessionManagerForRun } from "../session-manager-init.js";
 import { buildEmbeddedSystemPrompt, createSystemPromptOverride } from "../system-prompt.js";
 import { splitSdkTools } from "../tool-split.js";
+import { toClientToolDefinitions } from "../../pi-tool-definition-adapter.js";
 import { buildSystemPromptParams } from "../../system-prompt-params.js";
 import { describeUnknownError, mapThinkingLevel } from "../utils.js";
 import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
+import { lookupContextTokens } from "../../context.js";
 import { isTimeoutError } from "../../failover-error.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
@@ -108,13 +116,13 @@ export async function runEmbeddedAttempt(
       : [];
     restoreSkillEnv = params.skillsSnapshot
       ? applySkillEnvOverridesFromSnapshot({
-          snapshot: params.skillsSnapshot,
-          config: params.config,
-        })
+        snapshot: params.skillsSnapshot,
+        config: params.config,
+      })
       : applySkillEnvOverrides({
-          skills: skillEntries ?? [],
-          config: params.config,
-        });
+        skills: skillEntries ?? [],
+        config: params.config,
+      });
 
     const skillsPrompt = resolveSkillsPromptForRun({
       skillsSnapshot: params.skillsSnapshot,
@@ -145,6 +153,8 @@ export async function runEmbeddedAttempt(
       sandbox,
       messageProvider: params.messageChannel ?? params.messageProvider,
       agentAccountId: params.agentAccountId,
+      messageTo: params.messageTo,
+      messageThreadId: params.messageThreadId,
       sessionKey: params.sessionKey ?? params.sessionId,
       agentDir,
       workspaceDir: effectiveWorkspace,
@@ -166,10 +176,10 @@ export async function runEmbeddedAttempt(
     const runtimeChannel = normalizeMessageChannel(params.messageChannel ?? params.messageProvider);
     let runtimeCapabilities = runtimeChannel
       ? (resolveChannelCapabilities({
-          cfg: params.config,
-          channel: runtimeChannel,
-          accountId: params.agentAccountId,
-        }) ?? [])
+        cfg: params.config,
+        channel: runtimeChannel,
+        accountId: params.agentAccountId,
+      }) ?? [])
       : undefined;
     if (runtimeChannel === "telegram" && params.config) {
       const inlineButtonsScope = resolveTelegramInlineButtonsScope({
@@ -202,6 +212,19 @@ export async function runEmbeddedAttempt(
     });
     const sandboxInfo = buildEmbeddedSandboxInfo(sandbox, params.bashElevated);
     const reasoningTagHint = isReasoningTagProvider(params.provider);
+    // Resolve channel-specific message actions for system prompt
+    const channelActions = runtimeChannel
+      ? listChannelSupportedActions({
+          cfg: params.config,
+          channel: runtimeChannel,
+        })
+      : undefined;
+
+    const defaultModelRef = resolveDefaultModelForAgent({
+      cfg: params.config ?? {},
+      agentId: sessionAgentId,
+    });
+    const defaultModelLabel = `${defaultModelRef.provider}/${defaultModelRef.model}`;
     const { runtimeInfo, userTimezone, userTime, userTimeFormat } = buildSystemPromptParams({
       config: params.config,
       agentId: sessionAgentId,
@@ -211,8 +234,10 @@ export async function runEmbeddedAttempt(
         arch: os.arch(),
         node: process.version,
         model: `${params.provider}/${params.modelId}`,
+        defaultModel: defaultModelLabel,
         channel: runtimeChannel,
         capabilities: runtimeCapabilities,
+        channelActions,
       },
     });
     const isDefaultAgent = sessionAgentId === defaultAgentId;
@@ -284,7 +309,10 @@ export async function runEmbeddedAttempt(
         .catch(() => false);
 
       await prewarmSessionFile(params.sessionFile);
-      sessionManager = guardSessionManager(SessionManager.open(params.sessionFile));
+      sessionManager = guardSessionManager(SessionManager.open(params.sessionFile), {
+        agentId: sessionAgentId,
+        sessionKey: params.sessionKey,
+      });
       trackSessionManagerAccess(params.sessionFile);
 
       await prepareSessionManagerForRun({
@@ -314,6 +342,16 @@ export async function runEmbeddedAttempt(
         sandboxEnabled: !!sandbox?.enabled,
       });
 
+      // Add client tools (OpenResponses hosted tools) to customTools
+      let clientToolCallDetected: { name: string; params: Record<string, unknown> } | null = null;
+      const clientToolDefs = params.clientTools
+        ? toClientToolDefinitions(params.clientTools, (toolName, toolParams) => {
+            clientToolCallDetected = { name: toolName, params: toolParams };
+          })
+        : [];
+
+      const allCustomTools = [...customTools, ...clientToolDefs];
+
       ({ session } = await createAgentSession({
         cwd: resolvedWorkspace,
         agentDir,
@@ -323,7 +361,7 @@ export async function runEmbeddedAttempt(
         thinkingLevel: mapThinkingLevel(params.thinkLevel),
         systemPrompt,
         tools: builtInTools,
-        customTools,
+        customTools: allCustomTools,
         sessionManager,
         settingsManager,
         skills: [],
@@ -338,7 +376,13 @@ export async function runEmbeddedAttempt(
       // Force a stable streamFn reference so vitest can reliably mock @mariozechner/pi-ai.
       activeSession.agent.streamFn = streamSimple;
 
-      applyExtraParamsToAgent(activeSession.agent, params.config, params.provider, params.modelId);
+      applyExtraParamsToAgent(
+        activeSession.agent,
+        params.config,
+        params.provider,
+        params.modelId,
+        params.streamParams,
+      );
 
       try {
         const prior = await sanitizeSessionHistory({
@@ -355,8 +399,13 @@ export async function runEmbeddedAttempt(
           validated,
           getDmHistoryLimitFromSessionKey(params.sessionKey, params.config),
         );
-        if (limited.length > 0) {
-          activeSession.agent.replaceMessages(limited);
+        const contextWindow =
+          lookupContextTokens(params.modelId) ?? (params.model as any)?.contextWindow ?? 200_000;
+        const historyLimit = Math.floor(contextWindow * 0.9);
+        const tokenLimited = limitHistoryTokens(limited, historyLimit);
+
+        if (tokenLimited.length > 0) {
+          activeSession.agent.replaceMessages(tokenLimited);
         }
       } catch (err) {
         sessionManager.flushPendingToolResults?.();
@@ -681,6 +730,8 @@ export async function runEmbeddedAttempt(
         cloudCodeAssistFormatError: Boolean(
           lastAssistant?.errorMessage && isCloudCodeAssistFormatError(lastAssistant.errorMessage),
         ),
+        // Client tool call detected (OpenResponses hosted tools)
+        clientToolCall: clientToolCallDetected ?? undefined,
       };
     } finally {
       // Always tear down the session (and release the lock) before we leave this attempt.

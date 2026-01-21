@@ -140,22 +140,30 @@ Safety:
 - `swift run Clawdbot` (or Xcode)
 - Package app: `scripts/package-mac-app.sh`
 
-## Debug gateway discovery (macOS CLI)
+## Debug gateway connectivity (macOS CLI)
 
-Use the debug CLI to exercise the same Bonjour + wide‑area discovery code that the
-macOS app uses, without launching the app.
+Use the debug CLI to exercise the same Gateway WebSocket handshake and discovery
+logic that the macOS app uses, without launching the app.
 
 ```bash
 cd apps/macos
-swift run clawdbot-mac-discovery --timeout 3000 --json
+swift run clawdbot-mac connect --json
+swift run clawdbot-mac discover --timeout 3000 --json
 ```
 
-Options:
-- `--include-local`: include gateways that would be filtered as “local”
-- `--timeout <ms>`: overall discovery window (default `2000`)
+Connect options:
+- `--url <ws://host:port>`: override config
+- `--mode <local|remote>`: resolve from config (default: config or local)
+- `--probe`: force a fresh health probe
+- `--timeout <ms>`: request timeout (default: `15000`)
 - `--json`: structured output for diffing
 
-Tip: compare against `pnpm clawdbot gateway discover --json` to see whether the
+Discovery options:
+- `--include-local`: include gateways that would be filtered as “local”
+- `--timeout <ms>`: overall discovery window (default: `2000`)
+- `--json`: structured output for diffing
+
+Tip: compare against `clawdbot gateway discover --json` to see whether the
 macOS app’s discovery pipeline (NWBrowser + tailnet DNS‑SD fallback) differs from
 the Node CLI’s `dns-sd` based discovery.
 

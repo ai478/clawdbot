@@ -7,6 +7,7 @@ import path from "node:path";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 
+import type { ExecAsk, ExecHost, ExecSecurity } from "../infra/exec-approvals.js";
 import { logInfo } from "../logger.js";
 import { sliceUtf16Safe } from "../utils.js";
 import {
@@ -57,12 +58,21 @@ const _stringEnum = <T extends readonly string[]>(
   });
 
 export type ExecToolDefaults = {
+  host?: ExecHost;
+  security?: ExecSecurity;
+  ask?: ExecAsk;
+  node?: string;
+  pathPrepend?: string[];
+  agentId?: string;
   backgroundMs?: number;
   timeoutSec?: number;
   sandbox?: BashSandboxConfig;
   elevated?: ExecElevatedDefaults;
   allowBackground?: boolean;
   scopeKey?: string;
+  sessionKey?: string;
+  messageProvider?: string;
+  notifyOnExit?: boolean;
   cwd?: string;
 };
 
@@ -284,6 +294,8 @@ export function createExecTool(
         id: sessionId,
         command: params.command,
         scopeKey: defaults?.scopeKey,
+        sessionKey: defaults?.sessionKey,
+        notifyOnExit: defaults?.notifyOnExit,
         child,
         pid: child?.pid,
         startedAt,
@@ -292,6 +304,8 @@ export function createExecTool(
         totalOutputChars: 0,
         pendingStdout: [],
         pendingStderr: [],
+        pendingStdoutChars: 0,
+        pendingStderrChars: 0,
         aggregated: "",
         tail: "",
         exited: false,

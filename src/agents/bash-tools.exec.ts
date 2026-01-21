@@ -18,6 +18,10 @@ import {
 } from "../infra/exec-approvals.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { buildNodeShellCommand } from "../infra/node-shell.js";
+import {
+  getShellPathFromLoginShell,
+  resolveShellEnvFallbackTimeoutMs,
+} from "../infra/shell-env.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { logInfo } from "../logger.js";
 import {
@@ -249,6 +253,17 @@ function applyPathPrepend(
   if (merged) env.PATH = merged;
 }
 
+function applyShellPath(env: Record<string, string>, shellPath?: string | null) {
+  if (!shellPath) return;
+  const entries = shellPath
+    .split(path.delimiter)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (entries.length === 0) return;
+  const merged = mergePathPrepend(env.PATH, entries);
+  if (merged) env.PATH = merged;
+}
+
 function maybeNotifyOnExit(session: ProcessSession, status: "completed" | "failed") {
   if (!session.backgrounded || !session.notifyOnExit || session.exitNotified) return;
   const sessionKey = session.sessionKey?.trim();
@@ -385,7 +400,7 @@ export function createExecTool(
         host = "gateway";
       }
 
-      const configuredSecurity = defaults?.security ?? "deny";
+      const configuredSecurity = defaults?.security ?? (host === "sandbox" ? "deny" : "allowlist");
       const requestedSecurity = normalizeExecSecurity(params.security);
       let security = minSecurity(configuredSecurity, requestedSecurity ?? configuredSecurity);
       if (elevatedRequested) {
@@ -422,10 +437,20 @@ export function createExecTool(
             containerWorkdir: containerWorkdir ?? sandbox.containerWorkdir,
           })
         : mergedEnv;
+      if (!sandbox && host === "gateway" && !params.env?.PATH) {
+        const shellPath = getShellPathFromLoginShell({
+          env: process.env,
+          timeoutMs: resolveShellEnvFallbackTimeoutMs(process.env),
+        });
+        applyShellPath(env, shellPath);
+      }
       applyPathPrepend(env, defaultPathPrepend);
 
       if (host === "node") {
-        const approvals = resolveExecApprovals(defaults?.agentId);
+        const approvals = resolveExecApprovals(
+          defaults?.agentId,
+          host === "node" ? { security: "allowlist" } : undefined,
+        );
         const hostSecurity = minSecurity(security, approvals.agent.security);
         const hostAsk = maxAsk(ask, approvals.agent.ask);
         const askFallback = approvals.agent.askFallback;
@@ -469,14 +494,10 @@ export function createExecTool(
         if (nodeEnv) {
           applyPathPrepend(nodeEnv, defaultPathPrepend, { requireExisting: true });
         }
-        const resolution = resolveCommandResolution(params.command, workdir, env);
-        const allowlistMatch =
-          hostSecurity === "allowlist" ? matchAllowlist(approvals.allowlist, resolution) : null;
-        const requiresAsk =
-          hostAsk === "always" ||
-          (hostAsk === "on-miss" && hostSecurity === "allowlist" && !allowlistMatch);
+        const requiresAsk = hostAsk === "always" || hostAsk === "on-miss";
 
         let approvedByAsk = false;
+        let approvalDecision: "allow-once" | "allow-always" | null = null;
         if (requiresAsk) {
           const decisionResult = (await callGatewayTool(
             "exec.approval.request",
@@ -488,7 +509,7 @@ export function createExecTool(
               security: hostSecurity,
               ask: hostAsk,
               agentId: defaults?.agentId,
-              resolvedPath: resolution?.resolvedPath ?? null,
+              resolvedPath: null,
               sessionKey: defaults?.sessionKey ?? null,
               timeoutMs: 120_000,
             },
@@ -504,45 +525,21 @@ export function createExecTool(
           if (!decision) {
             if (askFallback === "full") {
               approvedByAsk = true;
+              approvalDecision = "allow-once";
             } else if (askFallback === "allowlist") {
-              if (!allowlistMatch) {
-                throw new Error("exec denied: approval required (approval UI not available)");
-              }
-              approvedByAsk = true;
+              // Defer allowlist enforcement to the node host.
             } else {
               throw new Error("exec denied: approval required (approval UI not available)");
             }
           }
           if (decision === "allow-once") {
             approvedByAsk = true;
+            approvalDecision = "allow-once";
           }
           if (decision === "allow-always") {
             approvedByAsk = true;
-            if (hostSecurity === "allowlist") {
-              const pattern =
-                resolution?.resolvedPath ??
-                resolution?.rawExecutable ??
-                params.command.split(/\s+/).shift() ??
-                "";
-              if (pattern) {
-                addAllowlistEntry(approvals.file, defaults?.agentId, pattern);
-              }
-            }
+            approvalDecision = "allow-always";
           }
-        }
-
-        if (hostSecurity === "allowlist" && !allowlistMatch && !approvedByAsk) {
-          throw new Error("exec denied: allowlist miss");
-        }
-
-        if (allowlistMatch) {
-          recordAllowlistUse(
-            approvals.file,
-            defaults?.agentId,
-            allowlistMatch,
-            params.command,
-            resolution?.resolvedPath,
-          );
         }
         const invokeParams: Record<string, unknown> = {
           nodeId,
@@ -556,6 +553,7 @@ export function createExecTool(
             agentId: defaults?.agentId,
             sessionKey: defaults?.sessionKey,
             approved: approvedByAsk,
+            approvalDecision: approvalDecision ?? undefined,
           },
           idempotencyKey: crypto.randomUUID(),
         };
@@ -588,7 +586,7 @@ export function createExecTool(
       }
 
       if (host === "gateway") {
-        const approvals = resolveExecApprovals(defaults?.agentId);
+        const approvals = resolveExecApprovals(defaults?.agentId, { security: "allowlist" });
         const hostSecurity = minSecurity(security, approvals.agent.security);
         const hostAsk = maxAsk(ask, approvals.agent.ask);
         const askFallback = approvals.agent.askFallback;

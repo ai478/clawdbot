@@ -6,6 +6,13 @@ import { HookMappingSchema, HooksGmailSchema, InternalHooksSchema } from "./zod-
 import { ChannelsSchema } from "./zod-schema.providers.js";
 import { CommandsSchema, MessagesSchema, SessionSchema } from "./zod-schema.session.js";
 
+const BrowserSnapshotDefaultsSchema = z
+  .object({
+    mode: z.literal("efficient").optional(),
+  })
+  .strict()
+  .optional();
+
 export const ClawdbotSchema = z
   .object({
     meta: z
@@ -35,6 +42,27 @@ export const ClawdbotSchema = z
         lastRunCommit: z.string().optional(),
         lastRunCommand: z.string().optional(),
         lastRunMode: z.union([z.literal("local"), z.literal("remote")]).optional(),
+      })
+      .strict()
+      .optional(),
+    diagnostics: z
+      .object({
+        enabled: z.boolean().optional(),
+        otel: z
+          .object({
+            enabled: z.boolean().optional(),
+            endpoint: z.string().optional(),
+            protocol: z.union([z.literal("http/protobuf"), z.literal("grpc")]).optional(),
+            headers: z.record(z.string(), z.string()).optional(),
+            serviceName: z.string().optional(),
+            traces: z.boolean().optional(),
+            metrics: z.boolean().optional(),
+            logs: z.boolean().optional(),
+            sampleRate: z.number().min(0).max(1).optional(),
+            flushIntervalMs: z.number().int().nonnegative().optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
@@ -73,7 +101,7 @@ export const ClawdbotSchema = z
       .optional(),
     update: z
       .object({
-        channel: z.union([z.literal("stable"), z.literal("beta")]).optional(),
+        channel: z.union([z.literal("stable"), z.literal("beta"), z.literal("dev")]).optional(),
         checkOnStart: z.boolean().optional(),
       })
       .strict()
@@ -92,6 +120,7 @@ export const ClawdbotSchema = z
         noSandbox: z.boolean().optional(),
         attachOnly: z.boolean().optional(),
         defaultProfile: z.string().optional(),
+        snapshotDefaults: BrowserSnapshotDefaultsSchema,
         profiles: z
           .record(
             z
@@ -261,6 +290,7 @@ export const ClawdbotSchema = z
             url: z.string().optional(),
             token: z.string().optional(),
             password: z.string().optional(),
+            tlsFingerprint: z.string().optional(),
             sshTarget: z.string().optional(),
             sshIdentity: z.string().optional(),
           })
@@ -299,9 +329,52 @@ export const ClawdbotSchema = z
                   })
                   .strict()
                   .optional(),
+                responses: z
+                  .object({
+                    enabled: z.boolean().optional(),
+                    maxBodyBytes: z.number().int().positive().optional(),
+                    files: z
+                      .object({
+                        allowUrl: z.boolean().optional(),
+                        allowedMimes: z.array(z.string()).optional(),
+                        maxBytes: z.number().int().positive().optional(),
+                        maxChars: z.number().int().positive().optional(),
+                        maxRedirects: z.number().int().nonnegative().optional(),
+                        timeoutMs: z.number().int().positive().optional(),
+                        pdf: z
+                          .object({
+                            maxPages: z.number().int().positive().optional(),
+                            maxPixels: z.number().int().positive().optional(),
+                            minTextChars: z.number().int().nonnegative().optional(),
+                          })
+                          .strict()
+                          .optional(),
+                      })
+                      .strict()
+                      .optional(),
+                    images: z
+                      .object({
+                        allowUrl: z.boolean().optional(),
+                        allowedMimes: z.array(z.string()).optional(),
+                        maxBytes: z.number().int().positive().optional(),
+                        maxRedirects: z.number().int().nonnegative().optional(),
+                        timeoutMs: z.number().int().positive().optional(),
+                      })
+                      .strict()
+                      .optional(),
+                  })
+                  .strict()
+                  .optional(),
               })
               .strict()
               .optional(),
+          })
+          .strict()
+          .optional(),
+        nodes: z
+          .object({
+            allowCommands: z.array(z.string()).optional(),
+            denyCommands: z.array(z.string()).optional(),
           })
           .strict()
           .optional(),
@@ -336,6 +409,7 @@ export const ClawdbotSchema = z
                 enabled: z.boolean().optional(),
                 apiKey: z.string().optional(),
                 env: z.record(z.string(), z.string()).optional(),
+                config: z.record(z.string(), z.unknown()).optional(),
               })
               .strict(),
           )

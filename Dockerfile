@@ -112,6 +112,16 @@ ENV CLAWDBOT_PREFER_PNPM=1
 RUN pnpm ui:install
 RUN pnpm ui:build
 
+# Install Playwright browsers (for browser automation tasks)
+# Install Playwright system dependencies (requires root)
+USER root
+RUN npx -y playwright@1.57.0 install-deps chromium
+USER node
+
+# Install Playwright browsers (for browser automation tasks)
+# Note: This runs as the 'node' user so browsers are installed in /home/node/.cache/ms-playwright
+RUN npx -y playwright@1.57.0 install chromium
+
 # Create agent-browser alias
 USER root
 RUN echo '#!/bin/bash\nnode /app/dist/entry.js browser "$@"' > /usr/local/bin/agent-browser \

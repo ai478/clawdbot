@@ -5,6 +5,7 @@ import { createAgentSession, SessionManager, SettingsManager } from "@mariozechn
 
 import { resolveHeartbeatPrompt } from "../../auto-reply/heartbeat.js";
 import type { ReasoningLevel, ThinkLevel } from "../../auto-reply/thinking.js";
+import { listChannelSupportedActions } from "../channel-tools.js";
 import { resolveChannelCapabilities } from "../../config/channel-capabilities.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 import { getMachineDisplayName } from "../../infra/machine-name.js";
@@ -48,7 +49,11 @@ import {
   sanitizeSessionHistory,
   sanitizeToolsForGoogle,
 } from "./google.js";
-import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "./history.js";
+import {
+  getDmHistoryLimitFromSessionKey,
+  limitHistoryTokens,
+  limitHistoryTurns,
+} from "./history.js";
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
 import { log } from "./logger.js";
 import { buildModelAliasLines, resolveModel } from "./model.js";
@@ -58,6 +63,7 @@ import { buildEmbeddedSystemPrompt, createSystemPromptOverride } from "./system-
 import { splitSdkTools } from "./tool-split.js";
 import type { EmbeddedPiCompactResult } from "./types.js";
 import { formatUserTime, resolveUserTimeFormat, resolveUserTimezone } from "../date-time.js";
+import { lookupContextTokens } from "../context.js";
 import { describeUnknownError, mapThinkingLevel, resolveExecToolDefaults } from "./utils.js";
 
 export async function compactEmbeddedPiSession(params: {
@@ -115,7 +121,13 @@ export async function compactEmbeddedPiSession(params: {
           agentDir,
         });
 
-        if (model.provider === "github-copilot") {
+        if (!apiKeyInfo.apiKey) {
+          if (apiKeyInfo.mode !== "aws-sdk") {
+            throw new Error(
+              `No API key resolved for provider "${model.provider}" (auth mode: ${apiKeyInfo.mode}).`,
+            );
+          }
+        } else if (model.provider === "github-copilot") {
           const { resolveCopilotApiToken } =
             await import("../../providers/github-copilot-token.js");
           const copilotToken = await resolveCopilotApiToken({
@@ -162,13 +174,13 @@ export async function compactEmbeddedPiSession(params: {
           : [];
         restoreSkillEnv = params.skillsSnapshot
           ? applySkillEnvOverridesFromSnapshot({
-              snapshot: params.skillsSnapshot,
-              config: params.config,
-            })
+            snapshot: params.skillsSnapshot,
+            config: params.config,
+          })
           : applySkillEnvOverrides({
-              skills: skillEntries ?? [],
-              config: params.config,
-            });
+            skills: skillEntries ?? [],
+            config: params.config,
+          });
         const skillsPrompt = resolveSkillsPromptForRun({
           skillsSnapshot: params.skillsSnapshot,
           entries: shouldLoadSkillEntries ? skillEntries : undefined,
@@ -210,10 +222,10 @@ export async function compactEmbeddedPiSession(params: {
         );
         let runtimeCapabilities = runtimeChannel
           ? (resolveChannelCapabilities({
-              cfg: params.config,
-              channel: runtimeChannel,
-              accountId: params.agentAccountId,
-            }) ?? [])
+            cfg: params.config,
+            channel: runtimeChannel,
+            accountId: params.agentAccountId,
+          }) ?? [])
           : undefined;
         if (runtimeChannel === "telegram" && params.config) {
           const inlineButtonsScope = resolveTelegramInlineButtonsScope({
@@ -231,6 +243,14 @@ export async function compactEmbeddedPiSession(params: {
             }
           }
         }
+        // Resolve channel-specific message actions for system prompt
+        const channelActions = runtimeChannel
+          ? listChannelSupportedActions({
+              cfg: params.config,
+              channel: runtimeChannel,
+            })
+          : undefined;
+
         const runtimeInfo = {
           host: machineName,
           os: `${os.type()} ${os.release()}`,
@@ -239,6 +259,7 @@ export async function compactEmbeddedPiSession(params: {
           model: `${provider}/${modelId}`,
           channel: runtimeChannel,
           capabilities: runtimeCapabilities,
+          channelActions,
         };
         const sandboxInfo = buildEmbeddedSandboxInfo(sandbox, params.bashElevated);
         const reasoningTagHint = isReasoningTagProvider(provider);
@@ -286,7 +307,10 @@ export async function compactEmbeddedPiSession(params: {
         });
         try {
           await prewarmSessionFile(params.sessionFile);
-          const sessionManager = guardSessionManager(SessionManager.open(params.sessionFile));
+          const sessionManager = guardSessionManager(SessionManager.open(params.sessionFile), {
+            agentId: sessionAgentId,
+            sessionKey: params.sessionKey,
+          });
           trackSessionManagerAccess(params.sessionFile);
           const settingsManager = SettingsManager.create(effectiveWorkspace, agentDir);
           ensurePiCompactionReserveTokens({
@@ -339,8 +363,12 @@ export async function compactEmbeddedPiSession(params: {
               validated,
               getDmHistoryLimitFromSessionKey(params.sessionKey, params.config),
             );
-            if (limited.length > 0) {
-              session.agent.replaceMessages(limited);
+            const contextWindow = lookupContextTokens(modelId) ?? (model as any).contextWindow ?? 200_000;
+            const historyLimit = Math.floor(contextWindow * 0.9);
+            const tokenLimited = limitHistoryTokens(limited, historyLimit);
+
+            if (tokenLimited.length > 0) {
+              session.agent.replaceMessages(tokenLimited);
             }
             const result = await session.compact(params.customInstructions);
             return {

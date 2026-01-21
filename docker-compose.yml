@@ -32,6 +32,9 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       CLAWDBOT_BROWSER_CONTROL_URL: http://0.0.0.0:18791
+      # Codex callback configuration
+      CLAWDBOT_DEFAULT_AGENT: ${CLAWDBOT_DEFAULT_AGENT:-admin}
+      CLAWDBOT_GATEWAY_URL: ${CLAWDBOT_GATEWAY_URL:-http://localhost:18789}
     volumes:
       - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
       - /home/clawdis/clawd:/home/node/clawd
