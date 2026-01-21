@@ -115,12 +115,12 @@ RUN pnpm ui:build
 # Install Playwright browsers (for browser automation tasks)
 # Install Playwright system dependencies (requires root)
 USER root
-RUN npx playwright@1.57.0 install-deps chromium
+RUN npx -y playwright@1.57.0 install-deps chromium
 USER node
 
 # Install Playwright browsers (for browser automation tasks)
 # Note: This runs as the 'node' user so browsers are installed in /home/node/.cache/ms-playwright
-RUN npx playwright@1.57.0 install chromium
+RUN npx -y playwright@1.57.0 install chromium
 
 # Create agent-browser alias
 USER root
