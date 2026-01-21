@@ -302,7 +302,7 @@
     "bind": "lan",
     "auth": {
       "mode": "token",
-      "token": "wondura-gateway-217"
+      "token": "a3f69debbd9544e3aa94e170a185708b7ed1d46971adaaba9b7375077ee8f312"
     },
     "tailscale": {
       "mode": "off",
