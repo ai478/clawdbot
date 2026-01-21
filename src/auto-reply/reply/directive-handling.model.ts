@@ -12,6 +12,7 @@ import type { ReplyPayload } from "../types.js";
 import {
   formatAuthLabel,
   type ModelAuthDetailMode,
+  hasProviderAuth,
   resolveAuthLabel,
   resolveProfileOverride,
 } from "./directive-handling.auth.js";
@@ -23,13 +24,14 @@ import {
 import type { InlineDirectives } from "./directive-handling.parse.js";
 import { type ModelDirectiveSelection, resolveModelDirectiveSelection } from "./model-selection.js";
 
-function buildModelPickerCatalog(params: {
+async function buildModelPickerCatalog(params: {
   cfg: ClawdbotConfig;
   defaultProvider: string;
   defaultModel: string;
   aliasIndex: ModelAliasIndex;
   allowedModelCatalog: Array<{ provider: string; id?: string; name?: string }>;
-}): ModelPickerCatalogEntry[] {
+  agentDir: string;
+}): Promise<ModelPickerCatalogEntry[]> {
   const resolvedDefault = resolveConfiguredModelRef({
     cfg: params.cfg,
     defaultProvider: params.defaultProvider,
@@ -49,9 +51,21 @@ function buildModelPickerCatalog(params: {
     out.push({ provider, id, name: entry.name });
   };
 
-  // Prefer catalog entries (when available), but always merge in config-only
-  // allowlist entries. This keeps custom providers/models visible in /model.
+  // Collect providers and check auth status
+  const providersWithAuth = new Set<string>();
   for (const entry of params.allowedModelCatalog) {
+    const provider = normalizeProviderId(entry.provider);
+    if (providersWithAuth.has(provider)) continue;
+    if (await hasProviderAuth(provider, params.cfg, params.agentDir)) {
+      providersWithAuth.add(provider);
+    }
+  }
+
+  // Prefer catalog entries from authenticated providers only
+  for (const entry of params.allowedModelCatalog) {
+    const provider = normalizeProviderId(entry.provider);
+    // Only include models from providers with valid credentials
+    if (!providersWithAuth.has(provider)) continue;
     push({
       provider: entry.provider,
       id: entry.id ?? "",
@@ -60,6 +74,7 @@ function buildModelPickerCatalog(params: {
   }
 
   // Merge any configured allowlist keys that the catalog doesn't know about.
+  // Always include these regardless of auth status (user explicitly configured them).
   for (const raw of Object.keys(params.cfg.agents?.defaults?.models ?? {})) {
     const resolved = resolveModelRefFromString({
       raw: String(raw),
@@ -74,7 +89,8 @@ function buildModelPickerCatalog(params: {
     });
   }
 
-  // Ensure the configured default is always present (even when no allowlist).
+  // Ensure the configured default is always present (even when no allowlist
+  // or when its provider lacks keys - for helpful error messaging).
   if (resolvedDefault.model) {
     push({
       provider: resolvedDefault.provider,
@@ -111,12 +127,13 @@ export async function maybeHandleModelDirectiveInfo(params: {
     return { text: "Auth profile override requires a model selection." };
   }
 
-  const pickerCatalog = buildModelPickerCatalog({
+  const pickerCatalog = await buildModelPickerCatalog({
     cfg: params.cfg,
     defaultProvider: params.defaultProvider,
     defaultModel: params.defaultModel,
     aliasIndex: params.aliasIndex,
     allowedModelCatalog: params.allowedModelCatalog,
+    agentDir: params.agentDir,
   });
 
   if (wantsList) {
@@ -194,7 +211,7 @@ export async function maybeHandleModelDirectiveInfo(params: {
   return { text: lines.join("\n") };
 }
 
-export function resolveModelSelectionFromDirective(params: {
+export async function resolveModelSelectionFromDirective(params: {
   directives: InlineDirectives;
   cfg: ClawdbotConfig;
   agentDir: string;
@@ -204,12 +221,15 @@ export function resolveModelSelectionFromDirective(params: {
   allowedModelKeys: Set<string>;
   allowedModelCatalog: Array<{ provider: string; id?: string; name?: string }>;
   provider: string;
-}): {
+}): Promise<{
   modelSelection?: ModelDirectiveSelection;
   profileOverride?: string;
   errorText?: string;
-} {
-  if (!params.directives.hasModelDirective || !params.directives.rawModelDirective) {
+}> {
+  if (
+    !params.directives.hasModelDirective ||
+    !params.directives.rawModelDirective
+  ) {
     if (params.directives.rawModelProfile) {
       return { errorText: "Auth profile override requires a model selection." };
     }
@@ -220,12 +240,13 @@ export function resolveModelSelectionFromDirective(params: {
   let modelSelection: ModelDirectiveSelection | undefined;
 
   if (/^[0-9]+$/.test(raw)) {
-    const pickerCatalog = buildModelPickerCatalog({
+    const pickerCatalog = await buildModelPickerCatalog({
       cfg: params.cfg,
       defaultProvider: params.defaultProvider,
       defaultModel: params.defaultModel,
       aliasIndex: params.aliasIndex,
       allowedModelCatalog: params.allowedModelCatalog,
+      agentDir: params.agentDir,
     });
     const items = buildModelPickerItems(pickerCatalog);
     const index = Number.parseInt(raw, 10) - 1;

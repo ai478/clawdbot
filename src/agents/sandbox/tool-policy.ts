@@ -73,6 +73,7 @@ export function resolveSandboxToolPolicyForAgent(
   // `image` is essential for multimodal workflows; always include it in sandboxed
   // sessions unless explicitly denied.
   if (
+    expandedAllow.length > 0 &&
     !expandedDeny.map((v) => v.toLowerCase()).includes("image") &&
     !expandedAllow.map((v) => v.toLowerCase()).includes("image")
   ) {

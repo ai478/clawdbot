@@ -81,6 +81,8 @@ export const SandboxDockerSchema = z
     dns: z.array(z.string()).optional(),
     extraHosts: z.array(z.string()).optional(),
     binds: z.array(z.string()).optional(),
+    volumes: z.array(z.string()).optional(),
+    mounts: z.array(z.string()).optional(),
   })
   .strict()
   .optional();

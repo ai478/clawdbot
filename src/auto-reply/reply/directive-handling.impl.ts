@@ -136,7 +136,7 @@ export async function handleDirectiveOnly(params: {
   });
   if (modelInfo) return modelInfo;
 
-  const modelResolution = resolveModelSelectionFromDirective({
+  const modelResolution = await resolveModelSelectionFromDirective({
     directives,
     cfg: params.cfg,
     agentDir,

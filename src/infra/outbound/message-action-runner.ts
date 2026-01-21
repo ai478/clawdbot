@@ -14,6 +14,7 @@ import type {
   ChannelMessageActionName,
   ChannelThreadingToolContext,
 } from "../../channels/plugins/types.js";
+import { getChannelDock } from "../../channels/dock.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 import {
   isDeliverableMessageChannel,
@@ -38,6 +39,7 @@ import {
 import { executePollAction, executeSendAction } from "./outbound-send-service.js";
 import { actionHasTarget, actionRequiresTarget } from "./message-action-spec.js";
 import { resolveChannelTarget } from "./target-resolver.js";
+import { normalizeTargetForProvider } from "./target-normalization.js";
 import { loadWebMedia } from "../../web/media.js";
 import { extensionForMime } from "../../media/mime.js";
 
@@ -408,6 +410,74 @@ function parseButtonsParam(params: Record<string, unknown>): void {
   } catch {
     throw new Error("--buttons must be valid JSON");
   }
+}
+
+const CONTEXT_GUARDED_ACTIONS = new Set<ChannelMessageActionName>([
+  "send",
+  "poll",
+  "thread-create",
+  "thread-reply",
+  "sticker",
+]);
+
+function resolveContextGuardTarget(
+  action: ChannelMessageActionName,
+  params: Record<string, unknown>,
+): string | undefined {
+  if (!CONTEXT_GUARDED_ACTIONS.has(action)) return undefined;
+
+  if (action === "thread-reply" || action === "thread-create") {
+    return readStringParam(params, "channelId") ?? readStringParam(params, "to");
+  }
+
+  return readStringParam(params, "to") ?? readStringParam(params, "channelId");
+}
+
+function enforceContextIsolation(params: {
+  channel: ChannelId;
+  action: ChannelMessageActionName;
+  params: Record<string, unknown>;
+  cfg: ClawdbotConfig;
+  toolContext?: ChannelThreadingToolContext;
+  accountId?: string | null;
+}): void {
+  const currentTarget = params.toolContext?.currentChannelId?.trim();
+  if (!currentTarget) return;
+  if (!CONTEXT_GUARDED_ACTIONS.has(params.action)) return;
+
+  const target = resolveContextGuardTarget(params.action, params.params);
+  if (!target) return;
+
+  const normalizedTarget =
+    normalizeTargetForProvider(params.channel, target) ?? target.toLowerCase();
+  const normalizedCurrent =
+    normalizeTargetForProvider(params.channel, currentTarget) ?? currentTarget.toLowerCase();
+
+  if (!normalizedTarget || !normalizedCurrent) return;
+  if (normalizedTarget === normalizedCurrent) return;
+
+  // Bypass for admins: if currentTarget is in the allowFrom list for this channel/account, allow cross-messaging.
+  const dock = getChannelDock(params.channel);
+  const allowFrom = dock?.config?.resolveAllowFrom?.({
+    cfg: params.cfg,
+    accountId: params.accountId,
+  });
+  if (allowFrom) {
+    const formattedAllowFrom =
+      dock?.config?.formatAllowFrom?.({
+        cfg: params.cfg,
+        accountId: params.accountId,
+        allowFrom,
+      }) ?? allowFrom.map((v) => String(v).toLowerCase());
+
+    if (formattedAllowFrom.includes(normalizedCurrent)) {
+      return;
+    }
+  }
+
+  throw new Error(
+    `Cross-context messaging denied: action=${params.action} target="${target}" while bound to "${currentTarget}" (channel=${params.channel}).`,
+  );
 }
 
 async function resolveChannel(cfg: ClawdbotConfig, params: Record<string, unknown>) {

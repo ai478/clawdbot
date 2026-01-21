@@ -2,9 +2,9 @@ import { CommandLane } from "./lanes.js";
 import { diagnosticLogger as diag, logLaneDequeue, logLaneEnqueue } from "../logging/diagnostic.js";
 
 // Minimal in-process queue to serialize command executions.
-// Default lane ("main") preserves the existing behavior. Additional lanes allow
-// low-risk parallelism (e.g. cron jobs) without interleaving stdin / logs for
-// the main auto-reply workflow.
+// The "main" lane allows parallel agent processing (maxConcurrent=4).
+// Session-specific lanes now also allow parallel processing (maxConcurrent=4).
+// This speeds up processing but requires tasks to be safe for concurrent execution.
 
 type QueueEntry = {
   task: () => Promise<unknown>;
@@ -25,6 +25,9 @@ type LaneState = {
 
 const lanes = new Map<string, LaneState>();
 
+// Default concurrency: all lanes (main and session) get 4.
+const DEFAULTLY_ALLOWED_CONCURRENCY = 4;
+
 function getLaneState(lane: string): LaneState {
   const existing = lanes.get(lane);
   if (existing) return existing;
@@ -32,7 +35,7 @@ function getLaneState(lane: string): LaneState {
     lane,
     queue: [],
     active: 0,
-    maxConcurrent: 1,
+    maxConcurrent: DEFAULTLY_ALLOWED_CONCURRENCY,
     draining: false,
   };
   lanes.set(lane, created);

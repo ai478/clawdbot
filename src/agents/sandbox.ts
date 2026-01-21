@@ -10,9 +10,14 @@ export {
   DEFAULT_SANDBOX_COMMON_IMAGE,
   DEFAULT_SANDBOX_IMAGE,
 } from "./sandbox/constants.js";
-export { ensureSandboxWorkspaceForSession, resolveSandboxContext } from "./sandbox/context.js";
-
-export { buildSandboxCreateArgs } from "./sandbox/docker.js";
+export {
+  ensureSandboxWorkspaceForSession,
+  resolveSandboxContext,
+} from "./sandbox/context.js";
+export {
+  buildSandboxCreateArgs,
+  ensureSandboxContainer,
+} from "./sandbox/docker.js";
 export {
   listSandboxBrowsers,
   listSandboxContainers,
@@ -25,7 +30,6 @@ export {
   formatSandboxToolPolicyBlockedMessage,
   resolveSandboxRuntimeStatus,
 } from "./sandbox/runtime-status.js";
-
 export { resolveSandboxToolPolicyForAgent } from "./sandbox/tool-policy.js";
 
 export type {

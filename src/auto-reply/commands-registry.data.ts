@@ -477,7 +477,15 @@ function buildChatCommands(): ChatCommandDefinition[] {
     }),
     ...listChannelDocks()
       .filter((dock) => dock.capabilities.nativeCommands)
-      .map((dock) => defineDockCommand(dock)),
+      .map((dock) =>
+        defineChatCommand({
+          key: `dock:${dock.id}`,
+          nativeName: `dock_${dock.id}`,
+          description: `Switch to ${dock.id} for replies.`,
+          textAlias: `/dock-${dock.id}`,
+          acceptsArgs: false,
+        }),
+      ),
   ];
 
   registerAlias(commands, "whoami", "/id");

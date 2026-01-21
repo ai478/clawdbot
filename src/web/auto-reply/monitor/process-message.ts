@@ -237,6 +237,7 @@ export async function processMessage(params: {
   const textLimit = params.maxMediaTextChunkLimit ?? resolveTextChunkLimit(params.cfg, "whatsapp");
   let didLogHeartbeatStrip = false;
   let didSendReply = false;
+  let didSendFinalReply = false;
   const commandAuthorized = shouldComputeCommandAuthorized(params.msg.body, params.cfg)
     ? await resolveWhatsAppCommandAuthorized({ cfg: params.cfg, msg: params.msg })
     : undefined;
@@ -347,6 +348,9 @@ export async function processMessage(params: {
           skipLog: info.kind !== "final",
         });
         didSendReply = true;
+        if (info.kind === "final") {
+          didSendFinalReply = true;
+        }
         if (info.kind === "tool") {
           params.rememberSentText(payload.text, {});
           return;
@@ -397,14 +401,11 @@ export async function processMessage(params: {
   });
 
   if (!queuedFinal) {
-    if (shouldClearGroupHistory) {
-      params.groupHistories.set(params.groupHistoryKey, []);
-    }
     logVerbose("Skipping auto-reply: silent token or no text/media returned from resolver");
     return false;
   }
 
-  if (shouldClearGroupHistory) {
+  if (shouldClearGroupHistory && didSendFinalReply) {
     params.groupHistories.set(params.groupHistoryKey, []);
   }
 

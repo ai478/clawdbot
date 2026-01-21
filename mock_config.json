@@ -1,0 +1,17 @@
+{
+  "telegram": {
+    "token": "example"
+  },
+  "bindings": [
+    {
+      "agentId": "team",
+      "match": {
+        "provider": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "8346495442"
+        }
+      }
+    }
+  ]
+}

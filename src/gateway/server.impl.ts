@@ -315,6 +315,15 @@ export async function startGatewayServer(
   const hasMobileNodeConnected = () => hasConnectedMobileNode(nodeRegistry);
   applyGatewayLaneConcurrency(cfgAtStart);
 
+
+  if (resolvedAuth.mode === "token" && resolvedAuth.token) {
+    const uiPath = controlUiBasePath ? `${controlUiBasePath}/` : "/";
+    log.info(`Gateway Token: ${resolvedAuth.token}`);
+    log.info(
+      `Web Control URL: http://${bindHost}:${port}${uiPath}?token=${resolvedAuth.token}`,
+    );
+  }
+
   let cronState = buildGatewayCronService({
     cfg: cfgAtStart,
     deps,

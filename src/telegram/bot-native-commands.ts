@@ -109,11 +109,22 @@ export const registerTelegramNativeCommands = ({
   ];
 
   if (allCommands.length > 0) {
-    bot.api.setMyCommands(allCommands).catch((err) => {
-      runtime.error?.(danger(`telegram setMyCommands failed: ${String(err)}`));
-    });
+    const api = bot.api as unknown as {
+      setMyCommands?: (
+        commands: Array<{ command: string; description: string }>,
+      ) => Promise<unknown>;
+    };
+    if (typeof api.setMyCommands === "function") {
+      logVerbose(`telegram: registering commands: ${JSON.stringify(allCommands)}`);
+      api.setMyCommands(allCommands).catch((err) => {
+        runtime.error?.(danger(`telegram setMyCommands failed: ${String(err)}`));
+      });
+    } else {
+      logVerbose("telegram: setMyCommands unavailable; skipping registration");
+    }
+  }
 
-    if (typeof (bot as unknown as { command?: unknown }).command !== "function") {
+  if (typeof (bot as unknown as { command?: unknown }).command !== "function") {
       logVerbose("telegram: bot.command unavailable; skipping native handlers");
     } else {
       for (const command of nativeCommands) {
@@ -295,6 +306,7 @@ export const registerTelegramNativeCommands = ({
             SenderName: buildSenderName(msg),
             SenderId: senderId || undefined,
             SenderUsername: senderUsername || undefined,
+            Provider: "telegram",
             Surface: "telegram",
             MessageSid: String(msg.message_id),
             Timestamp: msg.date ? msg.date * 1000 : undefined,

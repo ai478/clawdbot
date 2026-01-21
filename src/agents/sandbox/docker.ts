@@ -192,7 +192,15 @@ async function createSandboxContainer(params: {
       `${params.agentWorkspaceDir}:${SANDBOX_AGENT_WORKSPACE_MOUNT}${agentMountSuffix}`,
     );
   }
+
+  // Ensure bundled skills are accessible in the sandbox at the same paths as global
+  args.push("-v", `/app/skills:/app/skills:ro`);
+
   args.push(cfg.image, "sleep", "infinity");
+
+  import("../../globals.js").then(({ logVerbose }) => {
+    logVerbose(`sandbox: creating container ${name} with args: ${args.join(" ")}`);
+  });
 
   await execDocker(args);
   await execDocker(["start", name]);
@@ -288,7 +296,14 @@ export async function ensureSandboxContainer(params: {
       configHash: expectedHash,
     });
   } else if (!running) {
+    import("../../globals.js").then(({ logVerbose }) => {
+      logVerbose(`sandbox: starting existing container ${containerName}`);
+    });
     await execDocker(["start", containerName]);
+  } else {
+    import("../../globals.js").then(({ logVerbose }) => {
+      logVerbose(`sandbox: container ${containerName} is already running`);
+    });
   }
   await updateRegistry({
     containerName,

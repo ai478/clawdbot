@@ -15,7 +15,37 @@ import {
 } from "./auth-profiles.js";
 import { normalizeProviderId } from "./model-selection.js";
 
-export { ensureAuthProfileStore, resolveAuthProfileOrder } from "./auth-profiles.js";
+export {
+  ensureAuthProfileStore,
+  resolveAuthProfileOrder,
+  listProfilesForProvider,
+} from "./auth-profiles.js";
+
+/**
+ * Check if any auth profile has valid credentials for the given provider.
+ */
+export function hasAuthProfileWithKey(
+  store: AuthProfileStore,
+  provider: string,
+): boolean {
+  const normalized = normalizeProviderId(provider);
+  for (const profileId of Object.keys(store.profiles)) {
+    const profile = store.profiles[profileId];
+    if (!profile) continue;
+    if (profile.provider && normalizeProviderId(profile.provider) !== normalized) {
+      continue;
+    }
+    // Check for api_key type (has 'key')
+    if (profile.type === "api_key" && "key" in profile && (profile as { key?: string }).key?.trim()) {
+      return true;
+    }
+    // Check for oauth or token type (has 'token')
+    if ((profile.type === "oauth" || profile.type === "token") && "token" in profile && (profile as { token?: string }).token?.trim()) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const AWS_BEARER_ENV = "AWS_BEARER_TOKEN_BEDROCK";
 const AWS_ACCESS_KEY_ENV = "AWS_ACCESS_KEY_ID";

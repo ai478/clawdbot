@@ -6,6 +6,7 @@ import {
 import {
   ensureAuthProfileStore,
   getCustomProviderApiKey,
+  hasAuthProfileWithKey,
   resolveAuthProfileOrder,
   resolveEnvApiKey,
 } from "../../agents/model-auth.js";
@@ -196,6 +197,68 @@ export const formatAuthLabel = (auth: { label: string; source: string }) => {
     return auth.label;
   }
   return `${auth.label} (${auth.source})`;
+};
+
+/**
+ * Check if a provider has any valid authentication credentials.
+ * Returns true if the provider has:
+ * - A valid auth profile with an API key or token
+ * - An environment variable with the API key
+ * - A custom provider API key in the config
+ */
+export const hasProviderAuth = async (
+  provider: string,
+  cfg: ClawdbotConfig,
+  agentDir?: string,
+): Promise<boolean> => {
+  const store = ensureAuthProfileStore(agentDir, {
+    allowKeychainPrompt: false,
+  });
+  const order = resolveAuthProfileOrder({ cfg, store, provider });
+
+  // Check if any auth profile has valid credentials
+  for (const profileId of order) {
+    const profile = store.profiles[profileId];
+    const configProfile = cfg.auth?.profiles?.[profileId];
+    // Use type guards to narrow the discriminated union
+    if (profile && profile.type === "api_key" && profile.key?.trim()) {
+      const valid =
+        !configProfile?.provider ||
+        configProfile.provider === profile.provider;
+      if (valid) return true;
+    }
+    if (profile && profile.type === "token" && profile.token?.trim()) {
+      const valid =
+        !configProfile?.provider ||
+        configProfile.provider === profile.provider;
+      if (valid) return true;
+    }
+    // OAuth credentials always have valid tokens
+    if (profile && profile.type === "oauth") {
+      const valid =
+        !configProfile?.provider ||
+        configProfile.provider === profile.provider;
+      if (valid) return true;
+    }
+  }
+
+  // Check for auth profile with key (even if not in order yet)
+  if (hasAuthProfileWithKey(store, provider)) {
+    return true;
+  }
+
+  // Check environment variables
+  const envKey = resolveEnvApiKey(provider);
+  if (envKey?.apiKey?.trim()) {
+    return true;
+  }
+
+  // Check custom provider API keys in config
+  if (getCustomProviderApiKey(cfg, provider)) {
+    return true;
+  }
+
+  return false;
 };
 
 export const resolveProfileOverride = (params: {

@@ -49,7 +49,11 @@ import {
   sanitizeSessionHistory,
   sanitizeToolsForGoogle,
 } from "./google.js";
-import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "./history.js";
+import {
+  getDmHistoryLimitFromSessionKey,
+  limitHistoryTokens,
+  limitHistoryTurns,
+} from "./history.js";
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
 import { log } from "./logger.js";
 import { buildModelAliasLines, resolveModel } from "./model.js";
@@ -59,6 +63,7 @@ import { buildEmbeddedSystemPrompt, createSystemPromptOverride } from "./system-
 import { splitSdkTools } from "./tool-split.js";
 import type { EmbeddedPiCompactResult } from "./types.js";
 import { formatUserTime, resolveUserTimeFormat, resolveUserTimezone } from "../date-time.js";
+import { lookupContextTokens } from "../context.js";
 import { describeUnknownError, mapThinkingLevel, resolveExecToolDefaults } from "./utils.js";
 
 export async function compactEmbeddedPiSession(params: {
@@ -169,13 +174,13 @@ export async function compactEmbeddedPiSession(params: {
           : [];
         restoreSkillEnv = params.skillsSnapshot
           ? applySkillEnvOverridesFromSnapshot({
-              snapshot: params.skillsSnapshot,
-              config: params.config,
-            })
+            snapshot: params.skillsSnapshot,
+            config: params.config,
+          })
           : applySkillEnvOverrides({
-              skills: skillEntries ?? [],
-              config: params.config,
-            });
+            skills: skillEntries ?? [],
+            config: params.config,
+          });
         const skillsPrompt = resolveSkillsPromptForRun({
           skillsSnapshot: params.skillsSnapshot,
           entries: shouldLoadSkillEntries ? skillEntries : undefined,
@@ -217,10 +222,10 @@ export async function compactEmbeddedPiSession(params: {
         );
         let runtimeCapabilities = runtimeChannel
           ? (resolveChannelCapabilities({
-              cfg: params.config,
-              channel: runtimeChannel,
-              accountId: params.agentAccountId,
-            }) ?? [])
+            cfg: params.config,
+            channel: runtimeChannel,
+            accountId: params.agentAccountId,
+          }) ?? [])
           : undefined;
         if (runtimeChannel === "telegram" && params.config) {
           const inlineButtonsScope = resolveTelegramInlineButtonsScope({
@@ -358,8 +363,12 @@ export async function compactEmbeddedPiSession(params: {
               validated,
               getDmHistoryLimitFromSessionKey(params.sessionKey, params.config),
             );
-            if (limited.length > 0) {
-              session.agent.replaceMessages(limited);
+            const contextWindow = lookupContextTokens(modelId) ?? (model as any).contextWindow ?? 200_000;
+            const historyLimit = Math.floor(contextWindow * 0.9);
+            const tokenLimited = limitHistoryTokens(limited, historyLimit);
+
+            if (tokenLimited.length > 0) {
+              session.agent.replaceMessages(tokenLimited);
             }
             const result = await session.compact(params.customInstructions);
             return {

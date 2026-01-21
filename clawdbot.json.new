@@ -1,0 +1,382 @@
+{
+  "wizard": {
+    "lastRunAt": "2026-01-11T08:49:34.074Z",
+    "lastRunVersion": "2026.1.10",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local"
+  },
+  "auth": {
+    "profiles": {
+      "anthropic:default": {
+        "provider": "anthropic",
+        "mode": "token"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/home/node/clawd",
+      "sandbox": {
+        "mode": "off"
+      }
+    },
+    "list": [
+      {
+        "id": "admin",
+        "workspace": "/home/node/clawd",
+        "identity": {
+          "name": "Stevie",
+          "theme": "Strategic mind — part Jobs, part Musk. Direct, opinionated, truth-telling. Expert in n8n automation (using n8n-mcp tools) and Supabase database/storage management (using supabase-api.sh helper). For code tasks, uses Codex CLI via background bash (not sub-agents). Highly efficient, prefers parallel execution.",
+          "emoji": "🚀"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      },
+      {
+        "id": "team",
+        "workspace": "/home/node/clawd-team",
+        "identity": {
+          "name": "Stevie Team",
+          "theme": "Main team assistant with SDLC capabilities. For code research and implementation, uses Codex CLI directly via background bash (see AGENTS.md for patterns). Checks user permissions via get-employee.sh. Expert in n8n automation and Supabase operations.",
+          "emoji": "👥"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      },
+      {
+        "id": "gitsync",
+        "workspace": "/home/node/clawd",
+        "identity": {
+          "name": "GitSync Bot",
+          "theme": "Safe git workflow assistant. Creates feature branches, commits changes, and pushes to v1 remote. NEVER modifies main branch - only reads from it. Expert in git workflow and safe branching strategies. Admin-only access.",
+          "emoji": "🔄"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      },
+      {
+        "id": "sync",
+        "workspace": "/home/node/clawd-sync",
+        "identity": {
+          "name": "Sync Agent",
+          "theme": "Syncs employee skills and memories to shared folders with admin approval. Reviews employee contributions and promotes valuable ones to shared resources. Admin-only access.",
+          "emoji": "🔄"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      },
+      {
+        "id": "research",
+        "workspace": "/home/node/shared/agents/research",
+        "identity": {
+          "name": "Researcher",
+          "theme": "[DORMANT] Code research specialist. Uses Codex CLI to analyze any project codebase, find patterns, and provide context for feature specs. READ-ONLY — never modifies code.",
+          "emoji": "🔍"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      },
+      {
+        "id": "coder",
+        "workspace": "/home/node/shared/agents/coder",
+        "identity": {
+          "name": "Coder",
+          "theme": "[DORMANT] Implementation specialist. Uses Codex CLI --full-auto to implement approved specs on any project.",
+          "emoji": "⚙️"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      }
+    ]
+  },
+  "tools": {
+    "elevated": {
+      "enabled": true,
+      "allowFrom": {
+        "telegram": [
+          "883350587",
+          "1383989988"
+        ]
+      }
+    },
+    "sandbox": {
+      "tools": {
+        "allow": [],
+        "deny": [
+          "browser",
+          "canvas",
+          "nodes",
+          "cron",
+          "discord",
+          "gateway"
+        ]
+      }
+    }
+  },
+  "bindings": [
+    {
+      "agentId": "admin",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "883350587"
+        }
+      }
+    },
+    {
+      "agentId": "admin",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "1383989988"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "group",
+          "id": "-5211821786"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "822984553"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "8346495442"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "6519362897"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "5148176939"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "132525959"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "574133655"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "857880083"
+        }
+      }
+    },
+    {
+      "agentId": "team",
+      "match": {
+        "channel": "telegram",
+        "accountId": "*"
+      }
+    },
+    {
+      "agentId": "gitsync",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "883350587"
+        }
+      }
+    },
+    {
+      "agentId": "gitsync",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "1383989988"
+        }
+      }
+    },
+    {
+      "agentId": "sync",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "883350587"
+        }
+      }
+    },
+    {
+      "agentId": "sync",
+      "match": {
+        "channel": "telegram",
+        "peer": {
+          "kind": "dm",
+          "id": "1383989988"
+        }
+      }
+    }
+  ],
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "commands": {
+    "native": "auto",
+    "restart": true
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "allowlist",
+      "allowFrom": [
+        "883350587",
+        "1383989988",
+        "8346495442",
+        "6519362897",
+        "822984553",
+        "892973720",
+        "5148176939",
+        "132525959",
+        "574133655",
+        "857880083",
+        "-5211821786"
+      ],
+      "groupPolicy": "open",
+      "streamMode": "partial"
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "a3f69debbd9544e3aa94e170a185708b7ed1d46971adaaba9b7375077ee8f312"
+    },
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "pnpm"
+    },
+    "entries": {
+      "brave-search": {},
+      "linear": {},
+      "n8n-code-python": {
+        "enabled": true
+      },
+      "n8n-code-javascript": {
+        "enabled": true
+      },
+      "n8n-mcp-tools-expert": {
+        "enabled": true
+      },
+      "n8n-expression-syntax": {
+        "enabled": true
+      },
+      "n8n-validation-expert": {
+        "enabled": true
+      },
+      "n8n-workflow-patterns": {
+        "enabled": true
+      },
+      "n8n-node-configuration": {
+        "enabled": true
+      },
+      "supabase-storage": {
+        "enabled": true
+      },
+      "supabase-database": {
+        "enabled": true
+      },
+      "supabase-realtime": {
+        "enabled": true
+      },
+      "supabase-edge-functions": {
+        "enabled": true
+      }
+    }
+  },
+  "memory": {
+    "flush": {
+      "enabled": true,
+      "prompt": "Review the conversation and extract important facts, decisions, and action items. Update MEMORY.md concisely. Remove small talk and keep only valuable information.",
+      "systemPrompt": "You are a memory summarization agent. Extract only the most important information from conversations: key decisions, technical details, action items, and outcomes. Ignore greetings, clarifications, and redundant content.",
+      "softThresholdTokens": 80000,
+      "reserveTokensFloor": 2000
+    }
+  },
+  "mcpServers": {
+    "n8n-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "n8n-mcp"
+      ],
+      "env": {
+        "MCP_MODE": "stdio",
+        "LOG_LEVEL": "error",
+        "DISABLE_CONSOLE_OUTPUT": "true",
+        "N8N_API_URL": "${N8N_API_URL}",
+        "N8N_API_KEY": "${N8N_API_KEY}"
+      }
+    }
+  },
+  "heartbeat": {
+    "every": "1h"
+  }
+}

@@ -113,7 +113,10 @@ export async function setupSkills(
   };
 
   const installable = missing.filter(
-    (skill) => skill.install.length > 0 && skill.missing.bins.length > 0,
+    (skill) =>
+      skill.install.length > 0 &&
+      skill.missing.bins.length > 0 &&
+      skill.missing.os.length === 0,
   );
   if (installable.length > 0) {
     const toInstall = await prompter.multiselect({

@@ -1,19 +1,53 @@
 services:
   clawdbot-gateway:
+    build:
+      context: .
+      args:
+        DOCKER_GID: ${DOCKER_GID:-988}
     image: ${CLAWDBOT_IMAGE:-clawdbot:local}
+    user: root
     environment:
       HOME: /home/node
       TERM: xterm-256color
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       CLAWDBOT_GATEWAY_TOKEN: ${CLAWDBOT_GATEWAY_TOKEN}
       CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY}
+      BRAVE_API_KEY: ${BRAVE_API_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITLAB_TOKEN: ${GITLAB_TOKEN}
+      GITLAB_HOST: ${GITLAB_HOST}
+      GITLAB_URL: ${GITLAB_URL}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      LINEAR_API_KEY: ${LINEAR_API_KEY}
+      N8N_API_URL: ${N8N_API_URL}
+      N8N_API_KEY: ${N8N_API_KEY}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      CLAWDBOT_BROWSER_CONTROL_URL: http://0.0.0.0:18791
+      # Codex callback configuration
+      CLAWDBOT_DEFAULT_AGENT: ${CLAWDBOT_DEFAULT_AGENT:-admin}
+      CLAWDBOT_GATEWAY_URL: ${CLAWDBOT_GATEWAY_URL:-http://localhost:18789}
     volumes:
       - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
-      - ${CLAWDBOT_WORKSPACE_DIR}:/home/node/clawd
+      - /home/clawdis/clawd:/home/node/clawd
+      - /home/clawdis/clawd-team:/home/node/clawd-team
+      - /home/clawdis/clawd-sync:/home/node/clawd-sync
+      - /home/clawdis/shared:/home/node/shared
+      - /home/clawdis/shared/skills:/home/node/.clawdbot/skills
+      - /home/clawdis/.codex/auth.json:/home/node/.codex/auth.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${CLAWDBOT_GATEWAY_PORT:-18789}:18789"
       - "${CLAWDBOT_BRIDGE_PORT:-18790}:18790"
+      - "18791:18791"
     init: true
     restart: unless-stopped
     command:
@@ -24,21 +58,37 @@ services:
         "--bind",
         "${CLAWDBOT_GATEWAY_BIND:-lan}",
         "--port",
-        "${CLAWDBOT_GATEWAY_PORT:-18789}"
+        "${CLAWDBOT_GATEWAY_PORT:-18789}",
       ]
 
   clawdbot-cli:
     image: ${CLAWDBOT_IMAGE:-clawdbot:local}
+    user: "1001:1001"
     environment:
       HOME: /home/node
       TERM: xterm-256color
-      BROWSER: echo
-      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
-      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
-      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+      PATH: /home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/bin:/usr/bin:/bin
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      CLAWDBOT_GATEWAY_TOKEN: ${CLAWDBOT_GATEWAY_TOKEN}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITLAB_TOKEN: ${GITLAB_TOKEN}
+      GITLAB_HOST: ${GITLAB_HOST}
+      GITLAB_URL: ${GITLAB_URL}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY}
+      BRAVE_API_KEY: ${BRAVE_API_KEY}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
     volumes:
-      - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
-      - ${CLAWDBOT_WORKSPACE_DIR}:/home/node/clawd
+      - /home/clawdis/.clawdbot:/home/node/.clawdbot
+      - /home/clawdis/clawd:/home/node/clawd
+      - /home/clawdis/clawd-team:/home/node/clawd-team
+      - /home/clawdis/clawd-sync:/home/node/clawd-sync
+      - /home/clawdis/.codex/auth.json:/home/node/.codex/auth.json:ro
+      - /home/linuxbrew/.linuxbrew:/home/linuxbrew/.linuxbrew
+      # This maps the host cache we just fixed to the container's expected path
+      - /home/clawdis/.cache/clawdbot-brew:/home/node/.cache
     stdin_open: true
     tty: true
     init: true
