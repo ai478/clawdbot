@@ -79,56 +79,85 @@ function getGitPaths(args, repoRoot) {
 }
 
 function formatFiles(repoRoot, oxfmt, files) {
+  console.log(`[pre-commit] Running ${oxfmt.command} on ${files.length} file(s)...`);
   const result = spawnSync(oxfmt.command, ["--write", ...oxfmt.args, ...files], {
     cwd: repoRoot,
     stdio: "inherit",
+    shell: true, // Required for .cmd on Windows
   });
-  return result.status === 0;
+  if (result.error) {
+    console.error(`[pre-commit] spawn error: ${result.error.message}`);
+    return false;
+  }
+  if (result.status !== 0) {
+    // If status is null but no error, it might be a signal
+    const code = result.status === null ? "signal " + result.signal : result.status;
+    console.error(`[pre-commit] formatting failed with code ${code}`);
+    return false;
+  }
+  return true;
 }
 
 function stageFiles(repoRoot, files) {
   if (files.length === 0) return true;
+  console.log(`[pre-commit] Re-staging ${files.length} file(s)...`);
   const result = runGitCommand(["add", "--", ...files], { cwd: repoRoot, stdio: "inherit" });
-  return result.status === 0;
+  if (result.status !== 0) {
+    console.error(`[pre-commit] git add failed with code ${result.status}`);
+    return false;
+  }
+  return true;
 }
 
 function main() {
-  const repoRoot = getRepoRoot();
-  const staged = getGitPaths([
-    "diff",
-    "--cached",
-    "--name-only",
-    "-z",
-    "--diff-filter=ACMR",
-  ], repoRoot);
-  const targets = filterOxfmtTargets(staged);
-  if (targets.length === 0) return;
+  try {
+    const repoRoot = getRepoRoot();
+    const staged = getGitPaths([
+      "diff",
+      "--cached",
+      "--name-only",
+      "-z",
+      "--diff-filter=ACMR",
+    ], repoRoot);
 
-  const unstaged = getGitPaths(["diff", "--name-only", "-z"], repoRoot);
-  const partial = findPartiallyStagedFiles(targets, unstaged);
-  if (partial.length > 0) {
-    process.stderr.write("[pre-commit] Skipping partially staged files:\n");
-    for (const filePath of partial) {
-      process.stderr.write(`- ${filePath}\n`);
+    const targets = filterOxfmtTargets(staged);
+    if (targets.length === 0) {
+      // console.log("[pre-commit] No staged files to format.");
+      return;
     }
-    process.stderr.write("Stage full files to format them automatically.\n");
-  }
 
-  const filteredTargets = filterOutPartialTargets(targets, partial);
-  if (filteredTargets.length === 0) return;
+    const unstaged = getGitPaths(["diff", "--name-only", "-z"], repoRoot);
+    const partial = findPartiallyStagedFiles(targets, unstaged);
+    if (partial.length > 0) {
+      process.stderr.write("[pre-commit] Skipping partially staged files:\n");
+      for (const filePath of partial) {
+        process.stderr.write(`- ${filePath}\n`);
+      }
+      process.stderr.write("Stage full files to format them automatically.\n");
+    }
 
-  const oxfmt = resolveOxfmtCommand(repoRoot);
-  if (!oxfmt) {
-    process.stderr.write("[pre-commit] oxfmt not found; skipping format.\n");
-    return;
-  }
+    const filteredTargets = filterOutPartialTargets(targets, partial);
+    if (filteredTargets.length === 0) return;
 
-  if (!formatFiles(repoRoot, oxfmt, filteredTargets)) {
-    process.exitCode = 1;
-    return;
-  }
+    const oxfmt = resolveOxfmtCommand(repoRoot);
+    if (!oxfmt) {
+      process.stderr.write("[pre-commit] oxfmt not found; skipping format.\n");
+      return;
+    }
 
-  if (!stageFiles(repoRoot, filteredTargets)) {
+    if (!formatFiles(repoRoot, oxfmt, filteredTargets)) {
+      console.error("[pre-commit] Formatting failed. Fix the errors above or use 'git commit --no-verify' to bypass.");
+      process.exitCode = 1;
+      return;
+    }
+
+    if (!stageFiles(repoRoot, filteredTargets)) {
+      console.error("[pre-commit] Staging failed. Please stage the changes manually.");
+      process.exitCode = 1;
+    }
+  } catch (error) {
+    console.error("[pre-commit] Unexpected error:", error);
+    console.error("[pre-commit] You can bypass this hook with 'git commit --no-verify'");
     process.exitCode = 1;
   }
 }
