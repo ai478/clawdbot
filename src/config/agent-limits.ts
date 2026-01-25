@@ -18,3 +18,21 @@ export function resolveSubagentMaxConcurrent(cfg?: ClawdbotConfig): number {
   }
   return DEFAULT_SUBAGENT_MAX_CONCURRENT;
 }
+
+export function resolveAgentSessionConcurrency(cfg?: ClawdbotConfig, agentId?: string): number {
+  // Per-agent override
+  if (agentId && cfg?.agents?.list) {
+    const agent = cfg.agents.list.find((a) => a.id === agentId);
+    if (agent?.maxConcurrentSessions && Number.isFinite(agent.maxConcurrentSessions)) {
+      return Math.max(1, Math.floor(agent.maxConcurrentSessions));
+    }
+  }
+
+  // Global default
+  const raw = cfg?.agents?.defaults?.maxConcurrent;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(1, Math.floor(raw));
+  }
+
+  return DEFAULT_AGENT_MAX_CONCURRENT; // 4
+}

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import { enqueueCommandInLane } from "../../process/command-queue.js";
+import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { resolveUserPath } from "../../utils.js";
 import { isMarkdownCapableMessageChannel } from "../../utils/message-channel.js";
 import { resolveClawdbotAgentDir } from "../agent-paths.js";
@@ -67,7 +68,11 @@ export async function runEmbeddedPiAgent(
   params: RunEmbeddedPiAgentParams,
 ): Promise<EmbeddedPiRunResult> {
   const sessionLane = resolveSessionLane(params.sessionKey?.trim() || params.sessionId);
-  const globalLane = resolveGlobalLane(params.lane);
+
+  // Extract agentId from sessionKey to determine agent lane
+  const agentId = resolveAgentIdFromSessionKey(params.sessionKey || params.sessionId);
+  const globalLane = resolveGlobalLane(params.lane, agentId);
+
   const enqueueGlobal =
     params.enqueue ?? ((task, opts) => enqueueCommandInLane(globalLane, task, opts));
   const channelHint = params.messageChannel ?? params.messageProvider;

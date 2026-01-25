@@ -20,7 +20,10 @@ export const SENSITIVE_KEYS = [
   "MINIMAX_API_KEY",
   "N8N_API_URL",
   "N8N_API_KEY",
+  // Supabase - single account mode
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_ANON_KEY",
+  // Supabase - multi-account mode
+  "SUPABASE_ACCOUNTS",
 ];

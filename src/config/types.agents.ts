@@ -31,6 +31,8 @@ export type AgentConfig = {
   heartbeat?: AgentDefaultsConfig["heartbeat"];
   identity?: IdentityConfig;
   groupChat?: GroupChatConfig;
+  /** Max concurrent sessions for this agent. Default: 4 (from agents.defaults.maxConcurrent) */
+  maxConcurrentSessions?: number;
   subagents?: {
     /** Allow spawning sub-agents under other agent ids. Use "*" to allow any. */
     allowAgents?: string[];
