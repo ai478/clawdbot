@@ -321,6 +321,10 @@
       "mode": "token",
       "token": "a3f69debbd9544e3aa94e170a185708b7ed1d46971adaaba9b7375077ee8f312"
     },
+    "reload": {
+      "enabled": true,
+      "mode": "hybrid"
+    },
     "tailscale": {
       "mode": "off",
       "resetOnExit": false
