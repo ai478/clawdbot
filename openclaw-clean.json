@@ -1,0 +1,101 @@
+{
+  "wizard": {
+    "lastRunAt": "2026-02-03T10:00:00.000Z",
+    "lastRunVersion": "2026.2.1",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local"
+  },
+  "auth": {
+    "profiles": {
+      "moonshot:default": {
+        "provider": "moonshot",
+        "mode": "api_key"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/home/node/clawd",
+      "sandbox": {
+        "mode": "off"
+      },
+      "model": {
+        "primary": "moonshot/kimi-k2-0905-preview"
+      },
+      "models": {
+        "moonshot/kimi-k2-0905-preview": {
+          "alias": "Kimi"
+        }
+      }
+    },
+    "list": [
+      {
+        "id": "admin",
+        "workspace": "/home/node/clawd",
+        "identity": {
+          "name": "Stevie",
+          "theme": "Strategic mind — part Jobs, part Musk. Direct, opinionated, truth-telling. Expert in n8n automation and Supabase database/storage management. For code tasks, uses Codex CLI via background bash.",
+          "emoji": "🚀"
+        },
+        "sandbox": {
+          "mode": "off"
+        }
+      }
+    ]
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "6d77d076c35e73a0b22c2fadcbcb83c233309a22714cac10b158b08b0244c4b7"
+    },
+    "tailscale": {
+      "mode": "off"
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "allowlist",
+      "allowFrom": ["883350587", "1383989988"],
+      "groupPolicy": "open"
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "pnpm"
+    },
+    "entries": {
+      "brave-search": {},
+      "linear": {}
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "moonshot": {
+        "baseUrl": "https://api.moonshot.ai/v1",
+        "api": "openai-completions",
+        "apiKey": "${MOONSHOT_API_KEY}",
+        "models": [
+          {
+            "id": "kimi-k2-0905-preview",
+            "name": "Kimi K2 0905 Preview",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 256000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  }
+}
