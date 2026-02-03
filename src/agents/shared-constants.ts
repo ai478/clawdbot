@@ -18,6 +18,7 @@ export const SENSITIVE_KEYS = [
   "CLAUDE_WEB_COOKIE",
   "GITLAB_TOKEN",
   "MINIMAX_API_KEY",
+  "MOONSHOT_API_KEY",
   "N8N_API_URL",
   "N8N_API_KEY",
   // Supabase - single account mode
