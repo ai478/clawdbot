@@ -176,6 +176,25 @@ Run `openclaw doctor` to surface risky/misconfigured DM policies.
 - [Nix mode](https://docs.openclaw.ai/install/nix) for declarative config; [Docker](https://docs.openclaw.ai/install/docker)-based installs.
 - [Doctor](https://docs.openclaw.ai/gateway/doctor) migrations, [logging](https://docs.openclaw.ai/logging).
 
+## Docker Deployment
+
+To rebuild and restart the assistant on a remote server:
+
+```bash
+# Rebuild the image
+docker build --no-cache -t openclaw:local .
+
+# Setup sandboxes
+./scripts/sandbox-setup.sh
+
+# Restart services
+docker compose down
+docker compose up -d
+
+# View logs
+docker compose logs -f openclaw-gateway
+```
+
 ## How it works (short)
 
 ```
