@@ -99,15 +99,14 @@ RUN OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
 
-# Install Playwright browsers (for browser automation tasks)
 # Install Playwright system dependencies (requires root)
 USER root
-RUN ./node_modules/.bin/playwright install-deps chromium
+RUN npx playwright install-deps chromium
 USER node
 
 # Install Playwright browsers (for browser automation tasks)
 # Note: This runs as the 'node' user so browsers are installed in /home/node/.cache/ms-playwright
-RUN ./node_modules/.bin/playwright install chromium
+RUN npx playwright install chromium
 
 # Create agent-browser alias
 USER root
