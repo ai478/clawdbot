@@ -1,10 +1,16 @@
 import { z } from "zod";
 import { ToolsSchema } from "./zod-schema.agent-runtime.js";
 import { AgentsSchema, AudioSchema, BindingsSchema, BroadcastSchema } from "./zod-schema.agents.js";
+import { ApprovalsSchema } from "./zod-schema.approvals.js";
 import { HexColorSchema, ModelsConfigSchema } from "./zod-schema.core.js";
 import { HookMappingSchema, HooksGmailSchema, InternalHooksSchema } from "./zod-schema.hooks.js";
 import { ChannelsSchema } from "./zod-schema.providers.js";
-import { CommandsSchema, MessagesSchema, SessionSchema } from "./zod-schema.session.js";
+import {
+  CommandsSchema,
+  MessagesSchema,
+  SessionSchema,
+  SessionSendPolicySchema,
+} from "./zod-schema.session.js";
 
 const BrowserSnapshotDefaultsSchema = z
   .object({
@@ -13,7 +19,75 @@ const BrowserSnapshotDefaultsSchema = z
   .strict()
   .optional();
 
-export const ClawdbotSchema = z
+const NodeHostSchema = z
+  .object({
+    browserProxy: z
+      .object({
+        enabled: z.boolean().optional(),
+        allowProfiles: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .optional();
+
+const MemoryQmdPathSchema = z
+  .object({
+    path: z.string(),
+    name: z.string().optional(),
+    pattern: z.string().optional(),
+  })
+  .strict();
+
+const MemoryQmdSessionSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    exportDir: z.string().optional(),
+    retentionDays: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+const MemoryQmdUpdateSchema = z
+  .object({
+    interval: z.string().optional(),
+    debounceMs: z.number().int().nonnegative().optional(),
+    onBoot: z.boolean().optional(),
+    embedInterval: z.string().optional(),
+  })
+  .strict();
+
+const MemoryQmdLimitsSchema = z
+  .object({
+    maxResults: z.number().int().positive().optional(),
+    maxSnippetChars: z.number().int().positive().optional(),
+    maxInjectedChars: z.number().int().positive().optional(),
+    timeoutMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+const MemoryQmdSchema = z
+  .object({
+    command: z.string().optional(),
+    includeDefaultMemory: z.boolean().optional(),
+    paths: z.array(MemoryQmdPathSchema).optional(),
+    sessions: MemoryQmdSessionSchema.optional(),
+    update: MemoryQmdUpdateSchema.optional(),
+    limits: MemoryQmdLimitsSchema.optional(),
+    scope: SessionSendPolicySchema.optional(),
+  })
+  .strict();
+
+const MemorySchema = z
+  .object({
+    backend: z.union([z.literal("builtin"), z.literal("qmd")]).optional(),
+    citations: z.union([z.literal("auto"), z.literal("on"), z.literal("off")]).optional(),
+    qmd: MemoryQmdSchema.optional(),
+  })
+  .strict()
+  .optional();
+
+export const OpenClawSchema = z
   .object({
     meta: z
       .object({
@@ -48,6 +122,7 @@ export const ClawdbotSchema = z
     diagnostics: z
       .object({
         enabled: z.boolean().optional(),
+        flags: z.array(z.string()).optional(),
         otel: z
           .object({
             enabled: z.boolean().optional(),
@@ -60,6 +135,16 @@ export const ClawdbotSchema = z
             logs: z.boolean().optional(),
             sampleRate: z.number().min(0).max(1).optional(),
             flushIntervalMs: z.number().int().nonnegative().optional(),
+          })
+          .strict()
+          .optional(),
+        cacheTrace: z
+          .object({
+            enabled: z.boolean().optional(),
+            filePath: z.string().optional(),
+            includeMessages: z.boolean().optional(),
+            includePrompt: z.boolean().optional(),
+            includeSystem: z.boolean().optional(),
           })
           .strict()
           .optional(),
@@ -109,8 +194,7 @@ export const ClawdbotSchema = z
     browser: z
       .object({
         enabled: z.boolean().optional(),
-        controlUrl: z.string().optional(),
-        controlToken: z.string().optional(),
+        evaluateEnabled: z.boolean().optional(),
         cdpUrl: z.string().optional(),
         remoteCdpTimeoutMs: z.number().int().nonnegative().optional(),
         remoteCdpHandshakeTimeoutMs: z.number().int().nonnegative().optional(),
@@ -145,6 +229,13 @@ export const ClawdbotSchema = z
     ui: z
       .object({
         seamColor: HexColorSchema.optional(),
+        assistant: z
+          .object({
+            name: z.string().max(50).optional(),
+            avatar: z.string().max(200).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
@@ -176,13 +267,21 @@ export const ClawdbotSchema = z
       .strict()
       .optional(),
     models: ModelsConfigSchema,
+    nodeHost: NodeHostSchema,
     agents: AgentsSchema,
     tools: ToolsSchema,
     bindings: BindingsSchema,
     broadcast: BroadcastSchema,
     audio: AudioSchema,
+    media: z
+      .object({
+        preserveFilenames: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     messages: MessagesSchema,
     commands: CommandsSchema,
+    approvals: ApprovalsSchema,
     session: SessionSchema,
     cron: z
       .object({
@@ -232,6 +331,12 @@ export const ClawdbotSchema = z
           })
           .strict()
           .optional(),
+        mdns: z
+          .object({
+            mode: z.enum(["off", "minimal", "full"]).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
@@ -260,12 +365,20 @@ export const ClawdbotSchema = z
         port: z.number().int().positive().optional(),
         mode: z.union([z.literal("local"), z.literal("remote")]).optional(),
         bind: z
-          .union([z.literal("auto"), z.literal("lan"), z.literal("loopback"), z.literal("custom")])
+          .union([
+            z.literal("auto"),
+            z.literal("lan"),
+            z.literal("loopback"),
+            z.literal("custom"),
+            z.literal("tailnet"),
+          ])
           .optional(),
         controlUi: z
           .object({
             enabled: z.boolean().optional(),
             basePath: z.string().optional(),
+            allowInsecureAuth: z.boolean().optional(),
+            dangerouslyDisableDeviceAuth: z.boolean().optional(),
           })
           .strict()
           .optional(),
@@ -278,6 +391,7 @@ export const ClawdbotSchema = z
           })
           .strict()
           .optional(),
+        trustedProxies: z.array(z.string()).optional(),
         tailscale: z
           .object({
             mode: z.union([z.literal("off"), z.literal("serve"), z.literal("funnel")]).optional(),
@@ -288,6 +402,7 @@ export const ClawdbotSchema = z
         remote: z
           .object({
             url: z.string().optional(),
+            transport: z.union([z.literal("ssh"), z.literal("direct")]).optional(),
             token: z.string().optional(),
             password: z.string().optional(),
             tlsFingerprint: z.string().optional(),
@@ -373,6 +488,15 @@ export const ClawdbotSchema = z
           .optional(),
         nodes: z
           .object({
+            browser: z
+              .object({
+                mode: z
+                  .union([z.literal("auto"), z.literal("manual"), z.literal("off")])
+                  .optional(),
+                node: z.string().optional(),
+              })
+              .strict()
+              .optional(),
             allowCommands: z.array(z.string()).optional(),
             denyCommands: z.array(z.string()).optional(),
           })
@@ -381,6 +505,7 @@ export const ClawdbotSchema = z
       })
       .strict()
       .optional(),
+    memory: MemorySchema,
     skills: z
       .object({
         allowBundled: z.array(z.string()).optional(),
@@ -467,15 +592,23 @@ export const ClawdbotSchema = z
   .strict()
   .superRefine((cfg, ctx) => {
     const agents = cfg.agents?.list ?? [];
-    if (agents.length === 0) return;
+    if (agents.length === 0) {
+      return;
+    }
     const agentIds = new Set(agents.map((agent) => agent.id));
 
     const broadcast = cfg.broadcast;
-    if (!broadcast) return;
+    if (!broadcast) {
+      return;
+    }
 
     for (const [peerId, ids] of Object.entries(broadcast)) {
-      if (peerId === "strategy") continue;
-      if (!Array.isArray(ids)) continue;
+      if (peerId === "strategy") {
+        continue;
+      }
+      if (!Array.isArray(ids)) {
+        continue;
+      }
       for (let idx = 0; idx < ids.length; idx += 1) {
         const agentId = ids[idx];
         if (!agentIds.has(agentId)) {

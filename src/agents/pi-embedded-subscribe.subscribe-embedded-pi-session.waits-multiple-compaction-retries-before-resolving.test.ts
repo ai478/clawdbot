@@ -67,8 +67,12 @@ describe("subscribeEmbeddedPiSession", () => {
 
     const events: Array<{ phase: string; willRetry?: boolean }> = [];
     const stop = onAgentEvent((evt) => {
-      if (evt.runId !== "run-compaction") return;
-      if (evt.stream !== "compaction") return;
+      if (evt.runId !== "run-compaction") {
+        return;
+      }
+      if (evt.stream !== "compaction") {
+        return;
+      }
       const phase = typeof evt.data?.phase === "string" ? evt.data.phase : "";
       events.push({
         phase,
@@ -166,7 +170,7 @@ describe("subscribeEmbeddedPiSession", () => {
     expect(onToolResult).toHaveBeenCalledTimes(1);
     const payload = onToolResult.mock.calls[0][0];
     expect(payload.text).toContain("🌐");
-    expect(payload.text).toContain("browser");
+    expect(payload.text).toContain("Browser");
     expect(payload.text).toContain("snapshot");
     expect(payload.text).toContain("https://example.com");
   });
@@ -200,7 +204,7 @@ describe("subscribeEmbeddedPiSession", () => {
 
     expect(onToolResult).toHaveBeenCalledTimes(1);
     const summary = onToolResult.mock.calls[0][0];
-    expect(summary.text).toContain("exec");
+    expect(summary.text).toContain("Exec");
     expect(summary.text).toContain("pty");
 
     handler?.({

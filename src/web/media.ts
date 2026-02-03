@@ -1,14 +1,20 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
+import type { SsrFPolicy } from "../infra/net/ssrf.js";
 import { logVerbose, shouldLogVerbose } from "../globals.js";
 import { type MediaKind, maxBytesForKind, mediaKindFromMime } from "../media/constants.js";
 import { fetchRemoteMedia } from "../media/fetch.js";
-import { convertHeicToJpeg, resizeToJpeg } from "../media/image-ops.js";
+import {
+  convertHeicToJpeg,
+  hasAlphaChannel,
+  optimizeImageToPng,
+  resizeToJpeg,
+} from "../media/image-ops.js";
 import { detectMime, extensionForMime } from "../media/mime.js";
+import { resolveUserPath } from "../utils.js";
 
-type WebMediaResult = {
+export type WebMediaResult = {
   buffer: Buffer;
   contentType?: string;
   kind: MediaKind;
@@ -18,21 +24,43 @@ type WebMediaResult = {
 type WebMediaOptions = {
   maxBytes?: number;
   optimizeImages?: boolean;
+  ssrfPolicy?: SsrFPolicy;
 };
 
 const HEIC_MIME_RE = /^image\/hei[cf]$/i;
 const HEIC_EXT_RE = /\.(heic|heif)$/i;
+const MB = 1024 * 1024;
+
+function formatMb(bytes: number, digits = 2): string {
+  return (bytes / MB).toFixed(digits);
+}
+
+function formatCapLimit(label: string, cap: number, size: number): string {
+  return `${label} exceeds ${formatMb(cap, 0)}MB limit (got ${formatMb(size)}MB)`;
+}
+
+function formatCapReduce(label: string, cap: number, size: number): string {
+  return `${label} could not be reduced below ${formatMb(cap, 0)}MB (got ${formatMb(size)}MB)`;
+}
 
 function isHeicSource(opts: { contentType?: string; fileName?: string }): boolean {
-  if (opts.contentType && HEIC_MIME_RE.test(opts.contentType.trim())) return true;
-  if (opts.fileName && HEIC_EXT_RE.test(opts.fileName.trim())) return true;
+  if (opts.contentType && HEIC_MIME_RE.test(opts.contentType.trim())) {
+    return true;
+  }
+  if (opts.fileName && HEIC_EXT_RE.test(opts.fileName.trim())) {
+    return true;
+  }
   return false;
 }
 
 function toJpegFileName(fileName?: string): string | undefined {
-  if (!fileName) return undefined;
+  if (!fileName) {
+    return undefined;
+  }
   const trimmed = fileName.trim();
-  if (!trimmed) return fileName;
+  if (!trimmed) {
+    return fileName;
+  }
   const parsed = path.parse(trimmed);
   if (!parsed.ext || HEIC_EXT_RE.test(parsed.ext)) {
     return path.format({ dir: parsed.dir, name: parsed.name || trimmed, ext: ".jpg" });
@@ -40,11 +68,63 @@ function toJpegFileName(fileName?: string): string | undefined {
   return path.format({ dir: parsed.dir, name: parsed.name, ext: ".jpg" });
 }
 
+type OptimizedImage = {
+  buffer: Buffer;
+  optimizedSize: number;
+  resizeSide: number;
+  format: "jpeg" | "png";
+  quality?: number;
+  compressionLevel?: number;
+};
+
+function logOptimizedImage(params: { originalSize: number; optimized: OptimizedImage }): void {
+  if (!shouldLogVerbose()) {
+    return;
+  }
+  if (params.optimized.optimizedSize >= params.originalSize) {
+    return;
+  }
+  if (params.optimized.format === "png") {
+    logVerbose(
+      `Optimized PNG (preserving alpha) from ${formatMb(params.originalSize)}MB to ${formatMb(params.optimized.optimizedSize)}MB (side≤${params.optimized.resizeSide}px)`,
+    );
+    return;
+  }
+  logVerbose(
+    `Optimized media from ${formatMb(params.originalSize)}MB to ${formatMb(params.optimized.optimizedSize)}MB (side≤${params.optimized.resizeSide}px, q=${params.optimized.quality})`,
+  );
+}
+
+async function optimizeImageWithFallback(params: {
+  buffer: Buffer;
+  cap: number;
+  meta?: { contentType?: string; fileName?: string };
+}): Promise<OptimizedImage> {
+  const { buffer, cap, meta } = params;
+  const isPng = meta?.contentType === "image/png" || meta?.fileName?.toLowerCase().endsWith(".png");
+  const hasAlpha = isPng && (await hasAlphaChannel(buffer));
+
+  if (hasAlpha) {
+    const optimized = await optimizeImageToPng(buffer, cap);
+    if (optimized.buffer.length <= cap) {
+      return { ...optimized, format: "png" };
+    }
+    if (shouldLogVerbose()) {
+      logVerbose(
+        `PNG with alpha still exceeds ${formatMb(cap, 0)}MB after optimization; falling back to JPEG`,
+      );
+    }
+  }
+
+  const optimized = await optimizeImageToJpeg(buffer, cap, meta);
+  return { ...optimized, format: "jpeg" };
+}
+
 async function loadWebMediaInternal(
   mediaUrl: string,
   options: WebMediaOptions = {},
 ): Promise<WebMediaResult> {
-  const { maxBytes, optimizeImages = true } = options;
+  const { maxBytes, optimizeImages = true, ssrfPolicy } = options;
   // Use fileURLToPath for proper handling of file:// URLs (handles file://localhost/path, etc.)
   if (mediaUrl.startsWith("file://")) {
     try {
@@ -60,24 +140,22 @@ async function loadWebMediaInternal(
     meta?: { contentType?: string; fileName?: string },
   ) => {
     const originalSize = buffer.length;
-    const optimized = await optimizeImageToJpeg(buffer, cap, meta);
-    const fileName = meta && isHeicSource(meta) ? toJpegFileName(meta.fileName) : meta?.fileName;
-    if (optimized.optimizedSize < originalSize && shouldLogVerbose()) {
-      logVerbose(
-        `Optimized media from ${(originalSize / (1024 * 1024)).toFixed(2)}MB to ${(optimized.optimizedSize / (1024 * 1024)).toFixed(2)}MB (side≤${optimized.resizeSide}px, q=${optimized.quality})`,
-      );
-    }
+    const optimized = await optimizeImageWithFallback({ buffer, cap, meta });
+    logOptimizedImage({ originalSize, optimized });
+
     if (optimized.buffer.length > cap) {
-      throw new Error(
-        `Media could not be reduced below ${(cap / (1024 * 1024)).toFixed(0)}MB (got ${(
-          optimized.buffer.length /
-          (1024 * 1024)
-        ).toFixed(2)}MB)`,
-      );
+      throw new Error(formatCapReduce("Media", cap, optimized.buffer.length));
     }
+
+    const contentType = optimized.format === "png" ? "image/png" : "image/jpeg";
+    const fileName =
+      optimized.format === "jpeg" && meta && isHeicSource(meta)
+        ? toJpegFileName(meta.fileName)
+        : meta?.fileName;
+
     return {
       buffer: optimized.buffer,
-      contentType: "image/jpeg",
+      contentType,
       kind: "image" as const,
       fileName,
     };
@@ -89,20 +167,14 @@ async function loadWebMediaInternal(
     kind: MediaKind;
     fileName?: string;
   }): Promise<WebMediaResult> => {
-    const cap =
-      maxBytes !== undefined
-        ? Math.min(maxBytes, maxBytesForKind(params.kind))
-        : maxBytesForKind(params.kind);
+    // If caller explicitly provides maxBytes, trust it (for channels that handle large files).
+    // Otherwise fall back to per-kind defaults.
+    const cap = maxBytes !== undefined ? maxBytes : maxBytesForKind(params.kind);
     if (params.kind === "image") {
       const isGif = params.contentType === "image/gif";
       if (isGif || !optimizeImages) {
         if (params.buffer.length > cap) {
-          throw new Error(
-            `${isGif ? "GIF" : "Media"} exceeds ${(cap / (1024 * 1024)).toFixed(0)}MB limit (got ${(
-              params.buffer.length /
-              (1024 * 1024)
-            ).toFixed(2)}MB)`,
-          );
+          throw new Error(formatCapLimit(isGif ? "GIF" : "Media", cap, params.buffer.length));
         }
         return {
           buffer: params.buffer,
@@ -119,12 +191,7 @@ async function loadWebMediaInternal(
       };
     }
     if (params.buffer.length > cap) {
-      throw new Error(
-        `Media exceeds ${(cap / (1024 * 1024)).toFixed(0)}MB limit (got ${(
-          params.buffer.length /
-          (1024 * 1024)
-        ).toFixed(2)}MB)`,
-      );
+      throw new Error(formatCapLimit("Media", cap, params.buffer.length));
     }
     return {
       buffer: params.buffer,
@@ -135,10 +202,24 @@ async function loadWebMediaInternal(
   };
 
   if (/^https?:\/\//i.test(mediaUrl)) {
-    const fetched = await fetchRemoteMedia({ url: mediaUrl });
+    // Enforce a download cap during fetch to avoid unbounded memory usage.
+    // For optimized images, allow fetching larger payloads before compression.
+    const defaultFetchCap = maxBytesForKind("unknown");
+    const fetchCap =
+      maxBytes === undefined
+        ? defaultFetchCap
+        : optimizeImages
+          ? Math.max(maxBytes, defaultFetchCap)
+          : maxBytes;
+    const fetched = await fetchRemoteMedia({ url: mediaUrl, maxBytes: fetchCap, ssrfPolicy });
     const { buffer, contentType, fileName } = fetched;
     const kind = mediaKindFromMime(contentType);
     return await clampAndFinalize({ buffer, contentType, kind, fileName });
+  }
+
+  // Expand tilde paths to absolute paths (e.g., ~/Downloads/photo.jpg)
+  if (mediaUrl.startsWith("~")) {
+    mediaUrl = resolveUserPath(mediaUrl);
   }
 
   // Local path
@@ -148,7 +229,9 @@ async function loadWebMediaInternal(
   let fileName = path.basename(mediaUrl) || undefined;
   if (fileName && !path.extname(fileName) && mime) {
     const ext = extensionForMime(mime);
-    if (ext) fileName = `${fileName}${ext}`;
+    if (ext) {
+      fileName = `${fileName}${ext}`;
+    }
   }
   return await clampAndFinalize({
     buffer: data,
@@ -158,20 +241,27 @@ async function loadWebMediaInternal(
   });
 }
 
-export async function loadWebMedia(mediaUrl: string, maxBytes?: number): Promise<WebMediaResult> {
+export async function loadWebMedia(
+  mediaUrl: string,
+  maxBytes?: number,
+  options?: { ssrfPolicy?: SsrFPolicy },
+): Promise<WebMediaResult> {
   return await loadWebMediaInternal(mediaUrl, {
     maxBytes,
     optimizeImages: true,
+    ssrfPolicy: options?.ssrfPolicy,
   });
 }
 
 export async function loadWebMediaRaw(
   mediaUrl: string,
   maxBytes?: number,
+  options?: { ssrfPolicy?: SsrFPolicy },
 ): Promise<WebMediaResult> {
   return await loadWebMediaInternal(mediaUrl, {
     maxBytes,
     optimizeImages: false,
+    ssrfPolicy: options?.ssrfPolicy,
   });
 }
 
@@ -191,7 +281,7 @@ export async function optimizeImageToJpeg(
     try {
       source = await convertHeicToJpeg(buffer);
     } catch (err) {
-      throw new Error(`HEIC image conversion failed: ${String(err)}`);
+      throw new Error(`HEIC image conversion failed: ${String(err)}`, { cause: err });
     }
   }
   const sides = [2048, 1536, 1280, 1024, 800];
@@ -241,3 +331,5 @@ export async function optimizeImageToJpeg(
 
   throw new Error("Failed to optimize image");
 }
+
+export { optimizeImageToPng };

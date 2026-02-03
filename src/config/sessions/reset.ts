@@ -1,4 +1,5 @@
-import type { SessionConfig } from "../types.base.js";
+import type { SessionConfig, SessionResetConfig } from "../types.base.js";
+import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import { DEFAULT_IDLE_MINUTES } from "./types.js";
 
 export type SessionResetMode = "daily" | "idle";
@@ -24,7 +25,9 @@ const GROUP_SESSION_MARKERS = [":group:", ":channel:"];
 
 export function isThreadSessionKey(sessionKey?: string | null): boolean {
   const normalized = (sessionKey ?? "").toLowerCase();
-  if (!normalized) return false;
+  if (!normalized) {
+    return false;
+  }
   return THREAD_SESSION_MARKERS.some((marker) => normalized.includes(marker));
 }
 
@@ -33,10 +36,16 @@ export function resolveSessionResetType(params: {
   isGroup?: boolean;
   isThread?: boolean;
 }): SessionResetType {
-  if (params.isThread || isThreadSessionKey(params.sessionKey)) return "thread";
-  if (params.isGroup) return "group";
+  if (params.isThread || isThreadSessionKey(params.sessionKey)) {
+    return "thread";
+  }
+  if (params.isGroup) {
+    return "group";
+  }
   const normalized = (params.sessionKey ?? "").toLowerCase();
-  if (GROUP_SESSION_MARKERS.some((marker) => normalized.includes(marker))) return "group";
+  if (GROUP_SESSION_MARKERS.some((marker) => normalized.includes(marker))) {
+    return "group";
+  }
   return "dm";
 }
 
@@ -47,10 +56,18 @@ export function resolveThreadFlag(params: {
   threadStarterBody?: string | null;
   parentSessionKey?: string | null;
 }): boolean {
-  if (params.messageThreadId != null) return true;
-  if (params.threadLabel?.trim()) return true;
-  if (params.threadStarterBody?.trim()) return true;
-  if (params.parentSessionKey?.trim()) return true;
+  if (params.messageThreadId != null) {
+    return true;
+  }
+  if (params.threadLabel?.trim()) {
+    return true;
+  }
+  if (params.threadStarterBody?.trim()) {
+    return true;
+  }
+  if (params.parentSessionKey?.trim()) {
+    return true;
+  }
   return isThreadSessionKey(params.sessionKey);
 }
 
@@ -67,13 +84,13 @@ export function resolveDailyResetAtMs(now: number, atHour: number): number {
 export function resolveSessionResetPolicy(params: {
   sessionCfg?: SessionConfig;
   resetType: SessionResetType;
-  idleMinutesOverride?: number;
+  resetOverride?: SessionResetConfig;
 }): SessionResetPolicy {
   const sessionCfg = params.sessionCfg;
-  const baseReset = sessionCfg?.reset;
-  const typeReset = sessionCfg?.resetByType?.[params.resetType];
+  const baseReset = params.resetOverride ?? sessionCfg?.reset;
+  const typeReset = params.resetOverride ? undefined : sessionCfg?.resetByType?.[params.resetType];
   const hasExplicitReset = Boolean(baseReset || sessionCfg?.resetByType);
-  const legacyIdleMinutes = sessionCfg?.idleMinutes;
+  const legacyIdleMinutes = params.resetOverride ? undefined : sessionCfg?.idleMinutes;
   const mode =
     typeReset?.mode ??
     baseReset?.mode ??
@@ -81,11 +98,7 @@ export function resolveSessionResetPolicy(params: {
   const atHour = normalizeResetAtHour(
     typeReset?.atHour ?? baseReset?.atHour ?? DEFAULT_RESET_AT_HOUR,
   );
-  const idleMinutesRaw =
-    params.idleMinutesOverride ??
-    typeReset?.idleMinutes ??
-    baseReset?.idleMinutes ??
-    legacyIdleMinutes;
+  const idleMinutesRaw = typeReset?.idleMinutes ?? baseReset?.idleMinutes ?? legacyIdleMinutes;
 
   let idleMinutes: number | undefined;
   if (idleMinutesRaw != null) {
@@ -98,6 +111,23 @@ export function resolveSessionResetPolicy(params: {
   }
 
   return { mode, atHour, idleMinutes };
+}
+
+export function resolveChannelResetConfig(params: {
+  sessionCfg?: SessionConfig;
+  channel?: string | null;
+}): SessionResetConfig | undefined {
+  const resetByChannel = params.sessionCfg?.resetByChannel;
+  if (!resetByChannel) {
+    return undefined;
+  }
+  const normalized = normalizeMessageChannel(params.channel);
+  const fallback = params.channel?.trim().toLowerCase();
+  const key = normalized ?? fallback;
+  if (!key) {
+    return undefined;
+  }
+  return resetByChannel[key] ?? resetByChannel[key.toLowerCase()];
 }
 
 export function evaluateSessionFreshness(params: {
@@ -123,10 +153,18 @@ export function evaluateSessionFreshness(params: {
 }
 
 function normalizeResetAtHour(value: number | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_RESET_AT_HOUR;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_RESET_AT_HOUR;
+  }
   const normalized = Math.floor(value);
-  if (!Number.isFinite(normalized)) return DEFAULT_RESET_AT_HOUR;
-  if (normalized < 0) return 0;
-  if (normalized > 23) return 23;
+  if (!Number.isFinite(normalized)) {
+    return DEFAULT_RESET_AT_HOUR;
+  }
+  if (normalized < 0) {
+    return 0;
+  }
+  if (normalized > 23) {
+    return 23;
+  }
   return normalized;
 }

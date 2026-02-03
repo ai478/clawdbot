@@ -20,6 +20,7 @@ import type {
   ChannelAgentToolFactory,
   ChannelCapabilities,
   ChannelId,
+  ChannelAgentPromptAdapter,
   ChannelMentionAdapter,
   ChannelMessageActionAdapter,
   ChannelMessagingAdapter,
@@ -29,7 +30,6 @@ import type {
 } from "./types.core.js";
 
 // Channel docking: implement this contract in src/channels/plugins/<id>.ts.
-// biome-ignore lint/suspicious/noExplicitAny: registry aggregates heterogeneous account types.
 export type ChannelConfigUiHint = {
   label?: string;
   help?: string;
@@ -44,10 +44,16 @@ export type ChannelConfigSchema = {
   uiHints?: Record<string, ChannelConfigUiHint>;
 };
 
+// oxlint-disable-next-line typescript/no-explicit-any
 export type ChannelPlugin<ResolvedAccount = any> = {
   id: ChannelId;
   meta: ChannelMeta;
   capabilities: ChannelCapabilities;
+  defaults?: {
+    queue?: {
+      debounceMs?: number;
+    };
+  };
   reload?: { configPrefixes: string[]; noopPrefixes?: string[] };
   // CLI onboarding wizard hooks for this channel.
   onboarding?: ChannelOnboardingAdapter;
@@ -68,6 +74,7 @@ export type ChannelPlugin<ResolvedAccount = any> = {
   streaming?: ChannelStreamingAdapter;
   threading?: ChannelThreadingAdapter;
   messaging?: ChannelMessagingAdapter;
+  agentPrompt?: ChannelAgentPromptAdapter;
   directory?: ChannelDirectoryAdapter;
   resolver?: ChannelResolverAdapter;
   actions?: ChannelMessageActionAdapter;

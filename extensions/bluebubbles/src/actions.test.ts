@@ -1,7 +1,6 @@
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-
 import { bluebubblesMessageActions } from "./actions.js";
-import type { ClawdbotConfig } from "clawdbot/plugin-sdk";
 
 vi.mock("./accounts.js", () => ({
   resolveBlueBubblesAccount: vi.fn(({ cfg, accountId }) => {
@@ -38,6 +37,10 @@ vi.mock("./attachments.js", () => ({
   sendBlueBubblesAttachment: vi.fn().mockResolvedValue({ messageId: "att-msg-123" }),
 }));
 
+vi.mock("./monitor.js", () => ({
+  resolveBlueBubblesMessageId: vi.fn((id: string) => id),
+}));
+
 describe("bluebubblesMessageActions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,7 +48,7 @@ describe("bluebubblesMessageActions", () => {
 
   describe("listActions", () => {
     it("returns empty array when account is not enabled", () => {
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: { bluebubbles: { enabled: false } },
       };
       const actions = bluebubblesMessageActions.listActions({ cfg });
@@ -53,7 +56,7 @@ describe("bluebubblesMessageActions", () => {
     });
 
     it("returns empty array when account is not configured", () => {
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: { bluebubbles: { enabled: true } },
       };
       const actions = bluebubblesMessageActions.listActions({ cfg });
@@ -61,7 +64,7 @@ describe("bluebubblesMessageActions", () => {
     });
 
     it("returns react action when enabled and configured", () => {
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             enabled: true,
@@ -75,7 +78,7 @@ describe("bluebubblesMessageActions", () => {
     });
 
     it("excludes react action when reactions are gated off", () => {
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             enabled: true,
@@ -149,7 +152,7 @@ describe("bluebubblesMessageActions", () => {
 
   describe("handleAction", () => {
     it("throws for unsupported actions", async () => {
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -168,7 +171,7 @@ describe("bluebubblesMessageActions", () => {
     });
 
     it("throws when emoji is missing for react action", async () => {
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -187,7 +190,7 @@ describe("bluebubblesMessageActions", () => {
     });
 
     it("throws when messageId is missing", async () => {
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -209,7 +212,7 @@ describe("bluebubblesMessageActions", () => {
       const { resolveChatGuidForTarget } = await import("./send.js");
       vi.mocked(resolveChatGuidForTarget).mockResolvedValueOnce(null);
 
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -230,7 +233,7 @@ describe("bluebubblesMessageActions", () => {
     it("sends reaction successfully with chatGuid", async () => {
       const { sendBlueBubblesReaction } = await import("./reactions.js");
 
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -265,7 +268,7 @@ describe("bluebubblesMessageActions", () => {
     it("sends reaction removal successfully", async () => {
       const { sendBlueBubblesReaction } = await import("./reactions.js");
 
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -301,7 +304,7 @@ describe("bluebubblesMessageActions", () => {
       const { resolveChatGuidForTarget } = await import("./send.js");
       vi.mocked(resolveChatGuidForTarget).mockResolvedValueOnce("iMessage;-;+15559876543");
 
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -331,7 +334,7 @@ describe("bluebubblesMessageActions", () => {
     it("passes partIndex when provided", async () => {
       const { sendBlueBubblesReaction } = await import("./reactions.js");
 
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -358,10 +361,110 @@ describe("bluebubblesMessageActions", () => {
       );
     });
 
+    it("uses toolContext currentChannelId when no explicit target is provided", async () => {
+      const { sendBlueBubblesReaction } = await import("./reactions.js");
+      const { resolveChatGuidForTarget } = await import("./send.js");
+      vi.mocked(resolveChatGuidForTarget).mockResolvedValueOnce("iMessage;-;+15550001111");
+
+      const cfg: OpenClawConfig = {
+        channels: {
+          bluebubbles: {
+            serverUrl: "http://localhost:1234",
+            password: "test-password",
+          },
+        },
+      };
+      await bluebubblesMessageActions.handleAction({
+        action: "react",
+        params: {
+          emoji: "👍",
+          messageId: "msg-456",
+        },
+        cfg,
+        accountId: null,
+        toolContext: {
+          currentChannelId: "bluebubbles:chat_guid:iMessage;-;+15550001111",
+        },
+      });
+
+      expect(resolveChatGuidForTarget).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: { kind: "chat_guid", chatGuid: "iMessage;-;+15550001111" },
+        }),
+      );
+      expect(sendBlueBubblesReaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatGuid: "iMessage;-;+15550001111",
+        }),
+      );
+    });
+
+    it("resolves short messageId before reacting", async () => {
+      const { resolveBlueBubblesMessageId } = await import("./monitor.js");
+      const { sendBlueBubblesReaction } = await import("./reactions.js");
+      vi.mocked(resolveBlueBubblesMessageId).mockReturnValueOnce("resolved-uuid");
+
+      const cfg: OpenClawConfig = {
+        channels: {
+          bluebubbles: {
+            serverUrl: "http://localhost:1234",
+            password: "test-password",
+          },
+        },
+      };
+
+      await bluebubblesMessageActions.handleAction({
+        action: "react",
+        params: {
+          emoji: "❤️",
+          messageId: "1",
+          chatGuid: "iMessage;-;+15551234567",
+        },
+        cfg,
+        accountId: null,
+      });
+
+      expect(resolveBlueBubblesMessageId).toHaveBeenCalledWith("1", { requireKnownShortId: true });
+      expect(sendBlueBubblesReaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageGuid: "resolved-uuid",
+        }),
+      );
+    });
+
+    it("propagates short-id errors from the resolver", async () => {
+      const { resolveBlueBubblesMessageId } = await import("./monitor.js");
+      vi.mocked(resolveBlueBubblesMessageId).mockImplementationOnce(() => {
+        throw new Error("short id expired");
+      });
+
+      const cfg: OpenClawConfig = {
+        channels: {
+          bluebubbles: {
+            serverUrl: "http://localhost:1234",
+            password: "test-password",
+          },
+        },
+      };
+
+      await expect(
+        bluebubblesMessageActions.handleAction({
+          action: "react",
+          params: {
+            emoji: "❤️",
+            messageId: "999",
+            chatGuid: "iMessage;-;+15551234567",
+          },
+          cfg,
+          accountId: null,
+        }),
+      ).rejects.toThrow("short id expired");
+    });
+
     it("accepts message param for edit action", async () => {
       const { editBlueBubblesMessage } = await import("./chat.js");
 
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -387,7 +490,7 @@ describe("bluebubblesMessageActions", () => {
     it("accepts message/target aliases for sendWithEffect", async () => {
       const { sendMessageBlueBubbles } = await import("./send.js");
 
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -417,8 +520,44 @@ describe("bluebubblesMessageActions", () => {
       });
     });
 
+    it("passes asVoice through sendAttachment", async () => {
+      const { sendBlueBubblesAttachment } = await import("./attachments.js");
+
+      const cfg: OpenClawConfig = {
+        channels: {
+          bluebubbles: {
+            serverUrl: "http://localhost:1234",
+            password: "test-password",
+          },
+        },
+      };
+
+      const base64Buffer = Buffer.from("voice").toString("base64");
+
+      await bluebubblesMessageActions.handleAction({
+        action: "sendAttachment",
+        params: {
+          to: "+15551234567",
+          filename: "voice.mp3",
+          buffer: base64Buffer,
+          contentType: "audio/mpeg",
+          asVoice: true,
+        },
+        cfg,
+        accountId: null,
+      });
+
+      expect(sendBlueBubblesAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filename: "voice.mp3",
+          contentType: "audio/mpeg",
+          asVoice: true,
+        }),
+      );
+    });
+
     it("throws when buffer is missing for setGroupIcon", async () => {
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -440,7 +579,7 @@ describe("bluebubblesMessageActions", () => {
     it("sets group icon successfully with chatGuid and buffer", async () => {
       const { setGroupIconBlueBubbles } = await import("./chat.js");
 
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",
@@ -479,7 +618,7 @@ describe("bluebubblesMessageActions", () => {
     it("uses default filename when not provided for setGroupIcon", async () => {
       const { setGroupIconBlueBubbles } = await import("./chat.js");
 
-      const cfg: ClawdbotConfig = {
+      const cfg: OpenClawConfig = {
         channels: {
           bluebubbles: {
             serverUrl: "http://localhost:1234",

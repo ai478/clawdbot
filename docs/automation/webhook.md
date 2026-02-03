@@ -2,7 +2,8 @@
 summary: "Webhook ingress for wake and isolated agent runs"
 read_when:
   - Adding or changing webhook endpoints
-  - Wiring external systems into Clawdbot
+  - Wiring external systems into OpenClaw
+title: "Webhooks"
 ---
 
 # Webhooks
@@ -16,27 +17,30 @@ Gateway can expose a small HTTP webhook endpoint for external triggers.
   hooks: {
     enabled: true,
     token: "shared-secret",
-    path: "/hooks"
-  }
+    path: "/hooks",
+  },
 }
 ```
 
 Notes:
+
 - `hooks.token` is required when `hooks.enabled=true`.
 - `hooks.path` defaults to `/hooks`.
 
 ## Auth
 
-Every request must include the hook token:
-- `Authorization: Bearer <token>`
-- or `x-clawdbot-token: <token>`
-- or `?token=<token>`
+Every request must include the hook token. Prefer headers:
+
+- `Authorization: Bearer <token>` (recommended)
+- `x-openclaw-token: <token>`
+- `?token=<token>` (deprecated; logs a warning and will be removed in a future major release)
 
 ## Endpoints
 
 ### `POST /hooks/wake`
 
 Payload:
+
 ```json
 { "text": "System line", "mode": "now" }
 ```
@@ -45,12 +49,14 @@ Payload:
 - `mode` optional (`now` | `next-heartbeat`): Whether to trigger an immediate heartbeat (default `now`) or wait for the next periodic check.
 
 Effect:
+
 - Enqueues a system event for the **main** session
 - If `mode=now`, triggers an immediate heartbeat
 
 ### `POST /hooks/agent`
 
 Payload:
+
 ```json
 {
   "message": "Run this",
@@ -71,13 +77,14 @@ Payload:
 - `sessionKey` optional (string): The key used to identify the agent's session. Defaults to a random `hook:<uuid>`. Using a consistent key allows for a multi-turn conversation within the hook context.
 - `wakeMode` optional (`now` | `next-heartbeat`): Whether to trigger an immediate heartbeat (default `now`) or wait for the next periodic check.
 - `deliver` optional (boolean): If `true`, the agent's response will be sent to the messaging channel. Defaults to `true`. Responses that are only heartbeat acknowledgments are automatically skipped.
-- `channel` optional (string): The messaging channel for delivery. One of: `last`, `whatsapp`, `telegram`, `discord`, `slack`, `signal`, `imessage`, `msteams`. Defaults to `last`.
-- `to` optional (string): The recipient identifier for the channel (e.g., phone number for WhatsApp/Signal, chat ID for Telegram, channel ID for Discord/Slack, conversation ID for MS Teams). Defaults to the last recipient in the main session.
+- `channel` optional (string): The messaging channel for delivery. One of: `last`, `whatsapp`, `telegram`, `discord`, `slack`, `mattermost` (plugin), `signal`, `imessage`, `msteams`. Defaults to `last`.
+- `to` optional (string): The recipient identifier for the channel (e.g., phone number for WhatsApp/Signal, chat ID for Telegram, channel ID for Discord/Slack/Mattermost (plugin), conversation ID for MS Teams). Defaults to the last recipient in the main session.
 - `model` optional (string): Model override (e.g., `anthropic/claude-3-5-sonnet` or an alias). Must be in the allowed model list if restricted.
 - `thinking` optional (string): Thinking level override (e.g., `low`, `medium`, `high`).
 - `timeoutSeconds` optional (number): Maximum duration for the agent run in seconds.
 
 Effect:
+
 - Runs an **isolated** agent turn (own session key)
 - Always posts a summary into the **main** session
 - If `wakeMode=now`, triggers an immediate heartbeat
@@ -89,6 +96,7 @@ turn arbitrary payloads into `wake` or `agent` actions, with optional templates 
 code transforms.
 
 Mapping options (summary):
+
 - `hooks.presets: ["gmail"]` enables the built-in Gmail mapping.
 - `hooks.mappings` lets you define `match`, `action`, and templates in config.
 - `hooks.transformsDir` + `transform.module` loads a JS/TS module for custom logic.
@@ -96,8 +104,10 @@ Mapping options (summary):
 - TS transforms require a TS loader (e.g. `bun` or `tsx`) or precompiled `.js` at runtime.
 - Set `deliver: true` + `channel`/`to` on mappings to route replies to a chat surface
   (`channel` defaults to `last` and falls back to WhatsApp).
-- `clawdbot webhooks gmail setup` writes `hooks.gmail` config for `clawdbot webhooks gmail run`.
-See [Gmail Pub/Sub](/automation/gmail-pubsub) for the full Gmail watch flow.
+- `allowUnsafeExternalContent: true` disables the external content safety wrapper for that hook
+  (dangerous; only for trusted internal sources).
+- `openclaw webhooks gmail setup` writes `hooks.gmail` config for `openclaw webhooks gmail run`.
+  See [Gmail Pub/Sub](/automation/gmail-pubsub) for the full Gmail watch flow.
 
 ## Responses
 
@@ -118,7 +128,7 @@ curl -X POST http://127.0.0.1:18789/hooks/wake \
 
 ```bash
 curl -X POST http://127.0.0.1:18789/hooks/agent \
-  -H 'x-clawdbot-token: SECRET' \
+  -H 'x-openclaw-token: SECRET' \
   -H 'Content-Type: application/json' \
   -d '{"message":"Summarize inbox","name":"Email","wakeMode":"next-heartbeat"}'
 ```
@@ -129,7 +139,7 @@ Add `model` to the agent payload (or mapping) to override the model for that run
 
 ```bash
 curl -X POST http://127.0.0.1:18789/hooks/agent \
-  -H 'x-clawdbot-token: SECRET' \
+  -H 'x-openclaw-token: SECRET' \
   -H 'Content-Type: application/json' \
   -d '{"message":"Summarize inbox","name":"Email","model":"openai/gpt-5.2-mini"}'
 ```
@@ -148,3 +158,6 @@ curl -X POST http://127.0.0.1:18789/hooks/gmail \
 - Keep hook endpoints behind loopback, tailnet, or trusted reverse proxy.
 - Use a dedicated hook token; do not reuse gateway auth tokens.
 - Avoid including sensitive raw payloads in webhook logs.
+- Hook payloads are treated as untrusted and wrapped with safety boundaries by default.
+  If you must disable this for a specific hook, set `allowUnsafeExternalContent: true`
+  in that hook's mapping (dangerous).

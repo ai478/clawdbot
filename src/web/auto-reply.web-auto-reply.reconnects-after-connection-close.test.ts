@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { escapeRegExp, formatEnvelopeTimestamp } from "../../test/helpers/envelope-timestamp.js";
 
 vi.mock("../agents/pi-embedded.js", () => ({
   abortEmbeddedPiRun: vi.fn().mockReturnValue(false),
@@ -46,7 +47,7 @@ const rmDirWithRetries = async (dir: string): Promise<void> => {
 beforeEach(async () => {
   resetInboundDedupe();
   previousHome = process.env.HOME;
-  tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-web-home-"));
+  tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-web-home-"));
   process.env.HOME = tempHome;
 });
 
@@ -61,7 +62,7 @@ afterEach(async () => {
 const makeSessionStore = async (
   entries: Record<string, unknown> = {},
 ): Promise<{ storePath: string; cleanup: () => Promise<void> }> => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-session-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-"));
   const storePath = path.join(dir, "sessions.json");
   await fs.writeFile(storePath, JSON.stringify(entries));
   const cleanup = async () => {
@@ -297,6 +298,11 @@ describe("web auto-reply", () => {
       };
 
       setLoadConfigMock(() => ({
+        agents: {
+          defaults: {
+            envelopeTimezone: "utc",
+          },
+        },
         session: { store: store.storePath },
       }));
 
@@ -328,12 +334,16 @@ describe("web auto-reply", () => {
       expect(resolver).toHaveBeenCalledTimes(2);
       const firstArgs = resolver.mock.calls[0][0];
       const secondArgs = resolver.mock.calls[1][0];
+      const firstTimestamp = formatEnvelopeTimestamp(new Date("2025-01-01T00:00:00Z"));
+      const secondTimestamp = formatEnvelopeTimestamp(new Date("2025-01-01T01:00:00Z"));
+      const firstPattern = escapeRegExp(firstTimestamp);
+      const secondPattern = escapeRegExp(secondTimestamp);
       expect(firstArgs.Body).toMatch(
-        /\[WhatsApp \+1 (\+\d+[smhd] )?2025-01-01T00:00Z\] \[clawdbot\] first/,
+        new RegExp(`\\[WhatsApp \\+1 (\\+\\d+[smhd] )?${firstPattern}\\] \\[openclaw\\] first`),
       );
       expect(firstArgs.Body).not.toContain("second");
       expect(secondArgs.Body).toMatch(
-        /\[WhatsApp \+1 (\+\d+[smhd] )?2025-01-01T01:00Z\] \[clawdbot\] second/,
+        new RegExp(`\\[WhatsApp \\+1 (\\+\\d+[smhd] )?${secondPattern}\\] \\[openclaw\\] second`),
       );
       expect(secondArgs.Body).not.toContain("first");
 

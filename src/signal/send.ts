@@ -1,4 +1,5 @@
 import { loadConfig } from "../config/config.js";
+import { resolveMarkdownTableMode } from "../config/markdown-tables.js";
 import { mediaKindFromMime } from "../media/constants.js";
 import { saveMediaBuffer } from "../media/store.js";
 import { loadWebMedia } from "../web/media.js";
@@ -22,6 +23,10 @@ export type SignalSendResult = {
   timestamp?: number;
 };
 
+export type SignalRpcOpts = Pick<SignalSendOpts, "baseUrl" | "account" | "accountId" | "timeoutMs">;
+
+export type SignalReceiptType = "read" | "viewed";
+
 type SignalTarget =
   | { type: "recipient"; recipient: string }
   | { type: "group"; groupId: string }
@@ -29,7 +34,9 @@ type SignalTarget =
 
 function parseTarget(raw: string): SignalTarget {
   let value = raw.trim();
-  if (!value) throw new Error("Signal recipient is required");
+  if (!value) {
+    throw new Error("Signal recipient is required");
+  }
   const lower = value.toLowerCase();
   if (lower.startsWith("signal:")) {
     value = value.slice("signal:".length).trim();
@@ -48,6 +55,65 @@ function parseTarget(raw: string): SignalTarget {
     return { type: "username", username: value.trim() };
   }
   return { type: "recipient", recipient: value };
+}
+
+type SignalTargetParams = {
+  recipient?: string[];
+  groupId?: string;
+  username?: string[];
+};
+
+type SignalTargetAllowlist = {
+  recipient?: boolean;
+  group?: boolean;
+  username?: boolean;
+};
+
+function buildTargetParams(
+  target: SignalTarget,
+  allow: SignalTargetAllowlist,
+): SignalTargetParams | null {
+  if (target.type === "recipient") {
+    if (!allow.recipient) {
+      return null;
+    }
+    return { recipient: [target.recipient] };
+  }
+  if (target.type === "group") {
+    if (!allow.group) {
+      return null;
+    }
+    return { groupId: target.groupId };
+  }
+  if (target.type === "username") {
+    if (!allow.username) {
+      return null;
+    }
+    return { username: [target.username] };
+  }
+  return null;
+}
+
+function resolveSignalRpcContext(
+  opts: SignalRpcOpts,
+  accountInfo?: ReturnType<typeof resolveSignalAccount>,
+) {
+  const hasBaseUrl = Boolean(opts.baseUrl?.trim());
+  const hasAccount = Boolean(opts.account?.trim());
+  const resolvedAccount =
+    accountInfo ||
+    (!hasBaseUrl || !hasAccount
+      ? resolveSignalAccount({
+          cfg: loadConfig(),
+          accountId: opts.accountId,
+        })
+      : undefined);
+  const baseUrl = opts.baseUrl?.trim() || resolvedAccount?.baseUrl;
+  if (!baseUrl) {
+    throw new Error("Signal base URL is required");
+  }
+  const account = opts.account?.trim() || resolvedAccount?.config.account?.trim();
+  return { baseUrl, account };
 }
 
 async function resolveAttachment(
@@ -74,15 +140,16 @@ export async function sendMessageSignal(
     cfg,
     accountId: opts.accountId,
   });
-  const baseUrl = opts.baseUrl?.trim() || accountInfo.baseUrl;
-  const account = opts.account?.trim() || accountInfo.config.account?.trim();
+  const { baseUrl, account } = resolveSignalRpcContext(opts, accountInfo);
   const target = parseTarget(to);
   let message = text ?? "";
   let messageFromPlaceholder = false;
   let textStyles: SignalTextStyleRange[] = [];
   const textMode = opts.textMode ?? "markdown";
   const maxBytes = (() => {
-    if (typeof opts.maxBytes === "number") return opts.maxBytes;
+    if (typeof opts.maxBytes === "number") {
+      return opts.maxBytes;
+    }
     if (typeof accountInfo.config.mediaMaxMb === "number") {
       return accountInfo.config.mediaMaxMb * 1024 * 1024;
     }
@@ -108,7 +175,12 @@ export async function sendMessageSignal(
     if (textMode === "plain") {
       textStyles = opts.textStyles ?? [];
     } else {
-      const formatted = markdownToSignalText(message);
+      const tableMode = resolveMarkdownTableMode({
+        cfg,
+        channel: "signal",
+        accountId: accountInfo.accountId,
+      });
+      const formatted = markdownToSignalText(message, { tableMode });
       message = formatted.text;
       textStyles = formatted.styles;
     }
@@ -124,18 +196,22 @@ export async function sendMessageSignal(
       (style) => `${style.start}:${style.length}:${style.style}`,
     );
   }
-  if (account) params.account = account;
+  if (account) {
+    params.account = account;
+  }
   if (attachments && attachments.length > 0) {
     params.attachments = attachments;
   }
 
-  if (target.type === "recipient") {
-    params.recipient = [target.recipient];
-  } else if (target.type === "group") {
-    params.groupId = target.groupId;
-  } else if (target.type === "username") {
-    params.username = [target.username];
+  const targetParams = buildTargetParams(target, {
+    recipient: true,
+    group: true,
+    username: true,
+  });
+  if (!targetParams) {
+    throw new Error("Signal recipient is required");
   }
+  Object.assign(params, targetParams);
 
   const result = await signalRpcRequest<{ timestamp?: number }>("send", params, {
     baseUrl,
@@ -146,4 +222,60 @@ export async function sendMessageSignal(
     messageId: timestamp ? String(timestamp) : "unknown",
     timestamp,
   };
+}
+
+export async function sendTypingSignal(
+  to: string,
+  opts: SignalRpcOpts & { stop?: boolean } = {},
+): Promise<boolean> {
+  const { baseUrl, account } = resolveSignalRpcContext(opts);
+  const targetParams = buildTargetParams(parseTarget(to), {
+    recipient: true,
+    group: true,
+  });
+  if (!targetParams) {
+    return false;
+  }
+  const params: Record<string, unknown> = { ...targetParams };
+  if (account) {
+    params.account = account;
+  }
+  if (opts.stop) {
+    params.stop = true;
+  }
+  await signalRpcRequest("sendTyping", params, {
+    baseUrl,
+    timeoutMs: opts.timeoutMs,
+  });
+  return true;
+}
+
+export async function sendReadReceiptSignal(
+  to: string,
+  targetTimestamp: number,
+  opts: SignalRpcOpts & { type?: SignalReceiptType } = {},
+): Promise<boolean> {
+  if (!Number.isFinite(targetTimestamp) || targetTimestamp <= 0) {
+    return false;
+  }
+  const { baseUrl, account } = resolveSignalRpcContext(opts);
+  const targetParams = buildTargetParams(parseTarget(to), {
+    recipient: true,
+  });
+  if (!targetParams) {
+    return false;
+  }
+  const params: Record<string, unknown> = {
+    ...targetParams,
+    targetTimestamp,
+    type: opts.type ?? "read",
+  };
+  if (account) {
+    params.account = account;
+  }
+  await signalRpcRequest("sendReceipt", params, {
+    baseUrl,
+    timeoutMs: opts.timeoutMs,
+  });
+  return true;
 }

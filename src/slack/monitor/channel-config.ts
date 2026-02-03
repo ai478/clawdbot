@@ -1,8 +1,10 @@
 import type { SlackReactionNotificationMode } from "../../config/config.js";
 import type { SlackMessageEvent } from "../types.js";
 import {
+  applyChannelMatchMeta,
   buildChannelKeyCandidates,
   resolveChannelEntryMatchWithFallback,
+  type ChannelMatchSource,
 } from "../../channels/channel-config.js";
 import { allowListMatches, normalizeAllowListLower, normalizeSlackSlug } from "./allow-list.js";
 
@@ -14,12 +16,14 @@ export type SlackChannelConfigResolved = {
   skills?: string[];
   systemPrompt?: string;
   matchKey?: string;
-  matchSource?: "direct" | "wildcard";
+  matchSource?: ChannelMatchSource;
 };
 
 function firstDefined<T>(...values: Array<T | undefined>) {
   for (const value of values) {
-    if (typeof value !== "undefined") return value;
+    if (typeof value !== "undefined") {
+      return value;
+    }
   }
   return undefined;
 }
@@ -34,13 +38,19 @@ export function shouldEmitSlackReactionNotification(params: {
 }) {
   const { mode, botId, messageAuthorId, userId, userName, allowlist } = params;
   const effectiveMode = mode ?? "own";
-  if (effectiveMode === "off") return false;
+  if (effectiveMode === "off") {
+    return false;
+  }
   if (effectiveMode === "own") {
-    if (!botId || !messageAuthorId) return false;
+    if (!botId || !messageAuthorId) {
+      return false;
+    }
     return messageAuthorId === botId;
   }
   if (effectiveMode === "allowlist") {
-    if (!Array.isArray(allowlist) || allowlist.length === 0) return false;
+    if (!Array.isArray(allowlist) || allowlist.length === 0) {
+      return false;
+    }
     const users = normalizeAllowListLower(allowlist);
     return allowListMatches({
       allowList: users,
@@ -89,16 +99,12 @@ export function resolveSlackChannelConfig(params: {
     directName,
     normalizedName,
   );
-  const {
-    entry: matched,
-    wildcardEntry: fallback,
-    matchKey,
-    matchSource,
-  } = resolveChannelEntryMatchWithFallback({
+  const match = resolveChannelEntryMatchWithFallback({
     entries,
     keys: candidates,
     wildcardKey: "*",
   });
+  const { entry: matched, wildcardEntry: fallback } = match;
 
   const requireMentionDefault = defaultRequireMention ?? true;
   if (keys.length === 0) {
@@ -127,11 +133,7 @@ export function resolveSlackChannelConfig(params: {
     skills,
     systemPrompt,
   };
-  if (matchKey) result.matchKey = matchKey;
-  if (matchSource === "direct" || matchSource === "wildcard") {
-    result.matchSource = matchSource;
-  }
-  return result;
+  return applyChannelMatchMeta(result, match);
 }
 
 export type { SlackMessageEvent };

@@ -1,15 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { ClawdbotConfig } from "../../config/config.js";
-import { setActivePluginRegistry } from "../../plugins/runtime.js";
-import { createIMessageTestPlugin, createTestRegistry } from "../../test-utils/channel-plugins.js";
+import type { ChannelPlugin } from "../../channels/plugins/types.js";
+import type { OpenClawConfig } from "../../config/config.js";
 import { slackPlugin } from "../../../extensions/slack/src/channel.js";
 import { telegramPlugin } from "../../../extensions/telegram/src/channel.js";
 import { whatsappPlugin } from "../../../extensions/whatsapp/src/channel.js";
+import { jsonResult } from "../../agents/tools/common.js";
+import { setActivePluginRegistry } from "../../plugins/runtime.js";
+import { createIMessageTestPlugin, createTestRegistry } from "../../test-utils/channel-plugins.js";
 import { loadWebMedia } from "../../web/media.js";
 import { runMessageAction } from "./message-action-runner.js";
-import { jsonResult } from "../../agents/tools/common.js";
-import type { ChannelPlugin } from "../../channels/plugins/types.js";
 
 vi.mock("../../web/media.js", async () => {
   const actual = await vi.importActual<typeof import("../../web/media.js")>("../../web/media.js");
@@ -26,7 +25,7 @@ const slackConfig = {
       appToken: "xapp-test",
     },
   },
-} as ClawdbotConfig;
+} as OpenClawConfig;
 
 const whatsappConfig = {
   channels: {
@@ -34,7 +33,7 @@ const whatsappConfig = {
       allowFrom: ["*"],
     },
   },
-} as ClawdbotConfig;
+} as OpenClawConfig;
 
 describe("runMessageAction context isolation", () => {
   beforeEach(async () => {
@@ -263,7 +262,7 @@ describe("runMessageAction context isolation", () => {
           token: "tg-test",
         },
       },
-    } as ClawdbotConfig;
+    } as OpenClawConfig;
 
     const result = await runMessageAction({
       cfg: multiConfig,
@@ -305,7 +304,7 @@ describe("runMessageAction context isolation", () => {
           },
         },
       },
-    } as ClawdbotConfig;
+    } as OpenClawConfig;
 
     await expect(
       runMessageAction({
@@ -320,6 +319,44 @@ describe("runMessageAction context isolation", () => {
         dryRun: true,
       }),
     ).rejects.toThrow(/Cross-context messaging denied/);
+  });
+
+  it("aborts send when abortSignal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      runMessageAction({
+        cfg: slackConfig,
+        action: "send",
+        params: {
+          channel: "slack",
+          target: "#C12345678",
+          message: "hi",
+        },
+        dryRun: true,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("aborts broadcast when abortSignal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      runMessageAction({
+        cfg: slackConfig,
+        action: "broadcast",
+        params: {
+          targets: ["channel:C12345678"],
+          channel: "slack",
+          message: "hi",
+        },
+        dryRun: true,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
   });
 });
 
@@ -385,7 +422,7 @@ describe("runMessageAction sendAttachment hydration", () => {
           password: "test-password",
         },
       },
-    } as ClawdbotConfig;
+    } as OpenClawConfig;
 
     const result = await runMessageAction({
       cfg,
@@ -408,5 +445,67 @@ describe("runMessageAction sendAttachment hydration", () => {
     expect((result.payload as { buffer?: string }).buffer).toBe(
       Buffer.from("hello").toString("base64"),
     );
+  });
+});
+
+describe("runMessageAction accountId defaults", () => {
+  const handleAction = vi.fn(async () => jsonResult({ ok: true }));
+  const accountPlugin: ChannelPlugin = {
+    id: "discord",
+    meta: {
+      id: "discord",
+      label: "Discord",
+      selectionLabel: "Discord",
+      docsPath: "/channels/discord",
+      blurb: "Discord test plugin.",
+    },
+    capabilities: { chatTypes: ["direct"] },
+    config: {
+      listAccountIds: () => ["default"],
+      resolveAccount: () => ({}),
+    },
+    actions: {
+      listActions: () => ["send"],
+      handleAction,
+    },
+  };
+
+  beforeEach(() => {
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "discord",
+          source: "test",
+          plugin: accountPlugin,
+        },
+      ]),
+    );
+    handleAction.mockClear();
+  });
+
+  afterEach(() => {
+    setActivePluginRegistry(createTestRegistry([]));
+    vi.clearAllMocks();
+  });
+
+  it("propagates defaultAccountId into params", async () => {
+    await runMessageAction({
+      cfg: {} as OpenClawConfig,
+      action: "send",
+      params: {
+        channel: "discord",
+        target: "channel:123",
+        message: "hi",
+      },
+      defaultAccountId: "ops",
+    });
+
+    expect(handleAction).toHaveBeenCalled();
+    const ctx = handleAction.mock.calls[0]?.[0] as {
+      accountId?: string | null;
+      params: Record<string, unknown>;
+    };
+    expect(ctx.accountId).toBe("ops");
+    expect(ctx.params.accountId).toBe("ops");
   });
 });

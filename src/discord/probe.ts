@@ -1,3 +1,4 @@
+import { resolveFetch } from "../infra/fetch.js";
 import { normalizeDiscordToken } from "./token.js";
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
@@ -36,8 +37,12 @@ export function resolveDiscordPrivilegedIntentsFromFlags(
   flags: number,
 ): DiscordPrivilegedIntentsSummary {
   const resolve = (enabledBit: number, limitedBit: number) => {
-    if ((flags & enabledBit) !== 0) return "enabled";
-    if ((flags & limitedBit) !== 0) return "limited";
+    if ((flags & enabledBit) !== 0) {
+      return "enabled";
+    }
+    if ((flags & limitedBit) !== 0) {
+      return "limited";
+    }
     return "disabled";
   };
   return {
@@ -59,7 +64,9 @@ export async function fetchDiscordApplicationSummary(
   fetcher: typeof fetch = fetch,
 ): Promise<DiscordApplicationSummary | undefined> {
   const normalized = normalizeDiscordToken(token);
-  if (!normalized) return undefined;
+  if (!normalized) {
+    return undefined;
+  }
   try {
     const res = await fetchWithTimeout(
       `${DISCORD_API_BASE}/oauth2/applications/@me`,
@@ -69,7 +76,9 @@ export async function fetchDiscordApplicationSummary(
         Authorization: `Bot ${normalized}`,
       },
     );
-    if (!res.ok) return undefined;
+    if (!res.ok) {
+      return undefined;
+    }
     const json = (await res.json()) as { id?: string; flags?: number };
     const flags =
       typeof json.flags === "number" && Number.isFinite(json.flags) ? json.flags : undefined;
@@ -90,10 +99,14 @@ async function fetchWithTimeout(
   fetcher: typeof fetch,
   headers?: HeadersInit,
 ): Promise<Response> {
+  const fetchImpl = resolveFetch(fetcher);
+  if (!fetchImpl) {
+    throw new Error("fetch is not available");
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetcher(url, { signal: controller.signal, headers });
+    return await fetchImpl(url, { signal: controller.signal, headers });
   } finally {
     clearTimeout(timer);
   }
@@ -157,7 +170,9 @@ export async function fetchDiscordApplicationId(
   fetcher: typeof fetch = fetch,
 ): Promise<string | undefined> {
   const normalized = normalizeDiscordToken(token);
-  if (!normalized) return undefined;
+  if (!normalized) {
+    return undefined;
+  }
   try {
     const res = await fetchWithTimeout(
       `${DISCORD_API_BASE}/oauth2/applications/@me`,
@@ -167,7 +182,9 @@ export async function fetchDiscordApplicationId(
         Authorization: `Bot ${normalized}`,
       },
     );
-    if (!res.ok) return undefined;
+    if (!res.ok) {
+      return undefined;
+    }
     const json = (await res.json()) as { id?: string };
     return json.id ?? undefined;
   } catch {

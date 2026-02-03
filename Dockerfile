@@ -89,10 +89,10 @@ USER node
 
 WORKDIR /app
 
-ARG CLAWDBOT_DOCKER_APT_PACKAGES=""
-RUN if [ -n "$CLAWDBOT_DOCKER_APT_PACKAGES" ]; then \
+ARG OPENCLAW_DOCKER_APT_PACKAGES=""
+RUN if [ -n "$OPENCLAW_DOCKER_APT_PACKAGES" ]; then \
       apt-get update && \
-      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $CLAWDBOT_DOCKER_APT_PACKAGES && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $OPENCLAW_DOCKER_APT_PACKAGES && \
       apt-get clean && \
       rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
     fi
@@ -106,10 +106,9 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN pnpm install --frozen-lockfile
 
 COPY --chown=node:node . .
-RUN pnpm build
+RUN OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
 # Force pnpm for UI build (Bun may fail on ARM/Synology architectures)
-ENV CLAWDBOT_PREFER_PNPM=1
-RUN pnpm ui:install
+ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
 
 # Install Playwright browsers (for browser automation tasks)
@@ -130,4 +129,18 @@ USER node
 
 ENV NODE_ENV=production
 
-CMD ["node", "dist/index.js"]
+# Allow non-root user to write temp files during runtime/tests.
+RUN chown -R node:node /app
+
+# Security hardening: Run as non-root user
+# The node:22-bookworm image includes a 'node' user (uid 1000)
+# This reduces the attack surface by preventing container escape via root privileges
+USER node
+
+# Start gateway server with default config.
+# Binds to loopback (127.0.0.1) by default for security.
+#
+# For container platforms requiring external health checks:
+#   1. Set OPENCLAW_GATEWAY_TOKEN or OPENCLAW_GATEWAY_PASSWORD env var
+#   2. Override CMD: ["node","dist/index.js","gateway","--allow-unconfigured","--bind","lan"]
+CMD ["node", "dist/index.js", "gateway", "--allow-unconfigured"]

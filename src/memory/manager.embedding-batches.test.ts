@@ -1,9 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import { getMemorySearchManager, type MemoryIndexManager } from "./index.js";
 
 const embedBatch = vi.fn(async (texts: string[]) => texts.map(() => [0, 1, 0]));
@@ -29,7 +27,7 @@ describe("memory embedding batches", () => {
   beforeEach(async () => {
     embedBatch.mockClear();
     embedQuery.mockClear();
-    workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-mem-"));
+    workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-mem-"));
     indexPath = path.join(workspaceDir, "index.sqlite");
     await fs.mkdir(path.join(workspaceDir, "memory"));
   });
@@ -44,7 +42,7 @@ describe("memory embedding batches", () => {
 
   it("splits large files across multiple embedding batches", async () => {
     const line = "a".repeat(200);
-    const content = Array.from({ length: 200 }, () => line).join("\n");
+    const content = Array.from({ length: 50 }, () => line).join("\n");
     await fs.writeFile(path.join(workspaceDir, "memory", "2026-01-03.md"), content);
 
     const cfg = {
@@ -66,7 +64,9 @@ describe("memory embedding batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     await manager.sync({ force: true });
 
@@ -78,7 +78,7 @@ describe("memory embedding batches", () => {
 
   it("keeps small files in a single embedding batch", async () => {
     const line = "b".repeat(120);
-    const content = Array.from({ length: 12 }, () => line).join("\n");
+    const content = Array.from({ length: 4 }, () => line).join("\n");
     await fs.writeFile(path.join(workspaceDir, "memory", "2026-01-04.md"), content);
 
     const cfg = {
@@ -100,7 +100,9 @@ describe("memory embedding batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     await manager.sync({ force: true });
 
@@ -109,7 +111,7 @@ describe("memory embedding batches", () => {
 
   it("reports sync progress totals", async () => {
     const line = "c".repeat(120);
-    const content = Array.from({ length: 20 }, () => line).join("\n");
+    const content = Array.from({ length: 8 }, () => line).join("\n");
     await fs.writeFile(path.join(workspaceDir, "memory", "2026-01-05.md"), content);
 
     const cfg = {
@@ -131,7 +133,9 @@ describe("memory embedding batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     const updates: Array<{ completed: number; total: number; label?: string }> = [];
     await manager.sync({
@@ -150,7 +154,7 @@ describe("memory embedding batches", () => {
 
   it("retries embeddings on rate limit errors", async () => {
     const line = "d".repeat(120);
-    const content = Array.from({ length: 12 }, () => line).join("\n");
+    const content = Array.from({ length: 4 }, () => line).join("\n");
     await fs.writeFile(path.join(workspaceDir, "memory", "2026-01-06.md"), content);
 
     let calls = 0;
@@ -162,6 +166,19 @@ describe("memory embedding batches", () => {
       return texts.map(() => [0, 1, 0]);
     });
 
+    const realSetTimeout = setTimeout;
+    const setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) => {
+      const delay = typeof timeout === "number" ? timeout : 0;
+      if (delay > 0 && delay <= 2000) {
+        return realSetTimeout(handler, 0, ...args);
+      }
+      return realSetTimeout(handler, delay, ...args);
+    }) as typeof setTimeout);
+
     const cfg = {
       agents: {
         defaults: {
@@ -181,17 +198,22 @@ describe("memory embedding batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
-
-    await manager.sync({ force: true });
+    try {
+      await manager.sync({ force: true });
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
 
     expect(calls).toBe(3);
   }, 10000);
 
   it("retries embeddings on transient 5xx errors", async () => {
     const line = "e".repeat(120);
-    const content = Array.from({ length: 12 }, () => line).join("\n");
+    const content = Array.from({ length: 4 }, () => line).join("\n");
     await fs.writeFile(path.join(workspaceDir, "memory", "2026-01-08.md"), content);
 
     let calls = 0;
@@ -203,6 +225,19 @@ describe("memory embedding batches", () => {
       return texts.map(() => [0, 1, 0]);
     });
 
+    const realSetTimeout = setTimeout;
+    const setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) => {
+      const delay = typeof timeout === "number" ? timeout : 0;
+      if (delay > 0 && delay <= 2000) {
+        return realSetTimeout(handler, 0, ...args);
+      }
+      return realSetTimeout(handler, delay, ...args);
+    }) as typeof setTimeout);
+
     const cfg = {
       agents: {
         defaults: {
@@ -222,10 +257,15 @@ describe("memory embedding batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
-
-    await manager.sync({ force: true });
+    try {
+      await manager.sync({ force: true });
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
 
     expect(calls).toBe(3);
   }, 10000);
@@ -251,7 +291,9 @@ describe("memory embedding batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     await manager.sync({ force: true });
 

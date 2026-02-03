@@ -1,12 +1,24 @@
-import { ensureAuthProfileStore } from "../agents/auth-profiles.js";
-import type { ClawdbotConfig, GatewayAuthConfig } from "../config/config.js";
+import type { OpenClawConfig, GatewayAuthConfig } from "../config/config.js";
 import type { RuntimeEnv } from "../runtime.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
-import { applyAuthChoice, resolvePreferredProviderForAuthChoice } from "./auth-choice.js";
+import { ensureAuthProfileStore } from "../agents/auth-profiles.js";
 import { promptAuthChoiceGrouped } from "./auth-choice-prompt.js";
-import { applyPrimaryModel, promptDefaultModel } from "./model-picker.js";
+import { applyAuthChoice, resolvePreferredProviderForAuthChoice } from "./auth-choice.js";
+import {
+  applyModelAllowlist,
+  applyModelFallbacksFromSelection,
+  applyPrimaryModel,
+  promptDefaultModel,
+  promptModelAllowlist,
+} from "./model-picker.js";
 
-type GatewayAuthChoice = "off" | "token" | "password";
+type GatewayAuthChoice = "token" | "password";
+
+const ANTHROPIC_OAUTH_MODEL_KEYS = [
+  "anthropic/claude-opus-4-5",
+  "anthropic/claude-sonnet-4-5",
+  "anthropic/claude-haiku-4-5",
+];
 
 export function buildGatewayAuthConfig(params: {
   existing?: GatewayAuthConfig;
@@ -16,11 +28,10 @@ export function buildGatewayAuthConfig(params: {
 }): GatewayAuthConfig | undefined {
   const allowTailscale = params.existing?.allowTailscale;
   const base: GatewayAuthConfig = {};
-  if (typeof allowTailscale === "boolean") base.allowTailscale = allowTailscale;
-
-  if (params.mode === "off") {
-    return Object.keys(base).length > 0 ? base : undefined;
+  if (typeof allowTailscale === "boolean") {
+    base.allowTailscale = allowTailscale;
   }
+
   if (params.mode === "token") {
     return { ...base, mode: "token", token: params.token };
   }
@@ -28,17 +39,16 @@ export function buildGatewayAuthConfig(params: {
 }
 
 export async function promptAuthConfig(
-  cfg: ClawdbotConfig,
+  cfg: OpenClawConfig,
   runtime: RuntimeEnv,
   prompter: WizardPrompter,
-): Promise<ClawdbotConfig> {
+): Promise<OpenClawConfig> {
   const authChoice = await promptAuthChoiceGrouped({
     prompter,
     store: ensureAuthProfileStore(undefined, {
       allowKeychainPrompt: false,
     }),
     includeSkip: true,
-    includeClaudeCliIfMissing: true,
   });
 
   let next = cfg;
@@ -51,19 +61,32 @@ export async function promptAuthConfig(
       setDefaultModel: true,
     });
     next = applied.config;
-    // Auth choice already set a sensible default model; skip the model picker.
-    return next;
+  } else {
+    const modelSelection = await promptDefaultModel({
+      config: next,
+      prompter,
+      allowKeep: true,
+      ignoreAllowlist: true,
+      preferredProvider: resolvePreferredProviderForAuthChoice(authChoice),
+    });
+    if (modelSelection.model) {
+      next = applyPrimaryModel(next, modelSelection.model);
+    }
   }
 
-  const modelSelection = await promptDefaultModel({
+  const anthropicOAuth =
+    authChoice === "setup-token" || authChoice === "token" || authChoice === "oauth";
+
+  const allowlistSelection = await promptModelAllowlist({
     config: next,
     prompter,
-    allowKeep: true,
-    ignoreAllowlist: true,
-    preferredProvider: resolvePreferredProviderForAuthChoice(authChoice),
+    allowedKeys: anthropicOAuth ? ANTHROPIC_OAUTH_MODEL_KEYS : undefined,
+    initialSelections: anthropicOAuth ? ["anthropic/claude-opus-4-5"] : undefined,
+    message: anthropicOAuth ? "Anthropic OAuth models" : undefined,
   });
-  if (modelSelection.model) {
-    next = applyPrimaryModel(next, modelSelection.model);
+  if (allowlistSelection.models) {
+    next = applyModelAllowlist(next, allowlistSelection.models);
+    next = applyModelFallbacksFromSelection(next, allowlistSelection.models);
   }
 
   return next;

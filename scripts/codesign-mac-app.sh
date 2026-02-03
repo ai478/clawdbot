@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_BUNDLE="${1:-dist/Clawdbot.app}"
+APP_BUNDLE="${1:-dist/OpenClaw.app}"
 IDENTITY="${SIGN_IDENTITY:-}"
 TIMESTAMP_MODE="${CODESIGN_TIMESTAMP:-auto}"
 DISABLE_LIBRARY_VALIDATION="${DISABLE_LIBRARY_VALIDATION:-0}"
 SKIP_TEAM_ID_CHECK="${SKIP_TEAM_ID_CHECK:-0}"
-ENT_TMP_BASE=$(mktemp -t clawdbot-entitlements-base.XXXXXX)
-ENT_TMP_APP=$(mktemp -t clawdbot-entitlements-app.XXXXXX)
-ENT_TMP_APP_BASE=$(mktemp -t clawdbot-entitlements-app-base.XXXXXX)
-ENT_TMP_RUNTIME=$(mktemp -t clawdbot-entitlements-runtime.XXXXXX)
+ENT_TMP_BASE=$(mktemp -t openclaw-entitlements-base.XXXXXX)
+ENT_TMP_APP_BASE=$(mktemp -t openclaw-entitlements-app-base.XXXXXX)
+ENT_TMP_RUNTIME=$(mktemp -t openclaw-entitlements-runtime.XXXXXX)
 
 if [[ "${APP_BUNDLE}" == "--help" || "${APP_BUNDLE}" == "-h" ]]; then
   cat <<'HELP'
@@ -21,7 +20,6 @@ Env:
   CODESIGN_TIMESTAMP=auto|on|off
   DISABLE_LIBRARY_VALIDATION=1      # dev-only Sparkle Team ID workaround
   SKIP_TEAM_ID_CHECK=1              # bypass Team ID audit
-  ENABLE_TIME_SENSITIVE_NOTIFICATIONS=1
 HELP
   exit 0
 fi
@@ -182,43 +180,13 @@ cat > "$ENT_TMP_RUNTIME" <<'PLIST'
 </plist>
 PLIST
 
-cat > "$ENT_TMP_APP" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>com.apple.developer.usernotifications.time-sensitive</key>
-    <true/>
-    <key>com.apple.security.automation.apple-events</key>
-    <true/>
-    <key>com.apple.security.device.audio-input</key>
-    <true/>
-    <key>com.apple.security.device.camera</key>
-    <true/>
-    <key>com.apple.security.personal-information.location</key>
-    <true/>
-</dict>
-</plist>
-PLIST
-
 if [[ "$DISABLE_LIBRARY_VALIDATION" == "1" ]]; then
   /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.disable-library-validation bool true" "$ENT_TMP_APP_BASE" >/dev/null 2>&1 || \
     /usr/libexec/PlistBuddy -c "Set :com.apple.security.cs.disable-library-validation true" "$ENT_TMP_APP_BASE"
-  /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.disable-library-validation bool true" "$ENT_TMP_APP" >/dev/null 2>&1 || \
-    /usr/libexec/PlistBuddy -c "Set :com.apple.security.cs.disable-library-validation true" "$ENT_TMP_APP"
   echo "Note: disable-library-validation entitlement enabled (DISABLE_LIBRARY_VALIDATION=1)."
 fi
 
-# The time-sensitive entitlement is restricted and requires explicit enablement
-# (and typically a matching provisioning profile). It is *not* safe to enable
-# unconditionally for local debug packaging since AMFI will refuse to launch.
 APP_ENTITLEMENTS="$ENT_TMP_APP_BASE"
-if [[ "${ENABLE_TIME_SENSITIVE_NOTIFICATIONS:-}" == "1" ]]; then
-  APP_ENTITLEMENTS="$ENT_TMP_APP"
-else
-  echo "Note: Time Sensitive Notifications entitlement disabled."
-  echo "      To force it: ENABLE_TIME_SENSITIVE_NOTIFICATIONS=1 scripts/codesign-mac-app.sh <app>"
-fi
 
 # clear extended attributes to avoid stale signatures
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
@@ -280,8 +248,8 @@ verify_team_ids() {
 }
 
 # Sign main binary
-if [ -f "$APP_BUNDLE/Contents/MacOS/Clawdbot" ]; then
-  echo "Signing main binary"; sign_item "$APP_BUNDLE/Contents/MacOS/Clawdbot" "$APP_ENTITLEMENTS"
+if [ -f "$APP_BUNDLE/Contents/MacOS/OpenClaw" ]; then
+  echo "Signing main binary"; sign_item "$APP_BUNDLE/Contents/MacOS/OpenClaw" "$APP_ENTITLEMENTS"
 fi
 
 # Sign Sparkle deeply if present
@@ -317,5 +285,5 @@ sign_item "$APP_BUNDLE" "$APP_ENTITLEMENTS"
 
 verify_team_ids
 
-rm -f "$ENT_TMP_BASE" "$ENT_TMP_APP_BASE" "$ENT_TMP_APP" "$ENT_TMP_RUNTIME"
+rm -f "$ENT_TMP_BASE" "$ENT_TMP_APP_BASE" "$ENT_TMP_RUNTIME"
 echo "Codesign complete for $APP_BUNDLE"

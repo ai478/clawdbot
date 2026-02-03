@@ -1,13 +1,13 @@
-import { generateUUID } from "./uuid";
+import { buildDeviceAuthPayload } from "../../../src/gateway/device-auth.js";
 import {
   GATEWAY_CLIENT_MODES,
   GATEWAY_CLIENT_NAMES,
   type GatewayClientMode,
   type GatewayClientName,
 } from "../../../src/gateway/protocol/client-info.js";
-import { buildDeviceAuthPayload } from "../../../src/gateway/device-auth.js";
-import { loadOrCreateDeviceIdentity, signDevicePayload } from "./device-identity";
 import { clearDeviceAuthToken, loadDeviceAuthToken, storeDeviceAuthToken } from "./device-auth";
+import { loadOrCreateDeviceIdentity, signDevicePayload } from "./device-identity";
+import { generateUUID } from "./uuid";
 
 export type GatewayEventFrame = {
   type: "event";
@@ -91,50 +91,70 @@ export class GatewayBrowserClient {
   }
 
   private connect() {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     this.ws = new WebSocket(this.opts.url);
-    this.ws.onopen = () => this.queueConnect();
-    this.ws.onmessage = (ev) => this.handleMessage(String(ev.data ?? ""));
-    this.ws.onclose = (ev) => {
+    this.ws.addEventListener("open", () => this.queueConnect());
+    this.ws.addEventListener("message", (ev) => this.handleMessage(String(ev.data ?? "")));
+    this.ws.addEventListener("close", (ev) => {
       const reason = String(ev.reason ?? "");
       this.ws = null;
       this.flushPending(new Error(`gateway closed (${ev.code}): ${reason}`));
       this.opts.onClose?.({ code: ev.code, reason });
       this.scheduleReconnect();
-    };
-    this.ws.onerror = () => {
+    });
+    this.ws.addEventListener("error", () => {
       // ignored; close handler will fire
-    };
+    });
   }
 
   private scheduleReconnect() {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     const delay = this.backoffMs;
     this.backoffMs = Math.min(this.backoffMs * 1.7, 15_000);
     window.setTimeout(() => this.connect(), delay);
   }
 
   private flushPending(err: Error) {
-    for (const [, p] of this.pending) p.reject(err);
+    for (const [, p] of this.pending) {
+      p.reject(err);
+    }
     this.pending.clear();
   }
 
   private async sendConnect() {
-    if (this.connectSent) return;
+    if (this.connectSent) {
+      return;
+    }
     this.connectSent = true;
     if (this.connectTimer !== null) {
       window.clearTimeout(this.connectTimer);
       this.connectTimer = null;
     }
-    const deviceIdentity = await loadOrCreateDeviceIdentity();
+
+    // crypto.subtle is only available in secure contexts (HTTPS, localhost).
+    // Over plain HTTP, we skip device identity and fall back to token-only auth.
+    // Gateways may reject this unless gateway.controlUi.allowInsecureAuth is enabled.
+    const isSecureContext = typeof crypto !== "undefined" && !!crypto.subtle;
+
     const scopes = ["operator.admin", "operator.approvals", "operator.pairing"];
     const role = "operator";
-    const storedToken = loadDeviceAuthToken({
-      deviceId: deviceIdentity.deviceId,
-      role,
-    })?.token;
-    const authToken = storedToken ?? this.opts.token;
-    const canFallbackToShared = Boolean(storedToken && this.opts.token);
+    let deviceIdentity: Awaited<ReturnType<typeof loadOrCreateDeviceIdentity>> | null = null;
+    let canFallbackToShared = false;
+    let authToken = this.opts.token;
+
+    if (isSecureContext) {
+      deviceIdentity = await loadOrCreateDeviceIdentity();
+      const storedToken = loadDeviceAuthToken({
+        deviceId: deviceIdentity.deviceId,
+        role,
+      })?.token;
+      authToken = storedToken ?? this.opts.token;
+      canFallbackToShared = Boolean(storedToken && this.opts.token);
+    }
     const auth =
       authToken || this.opts.password
         ? {
@@ -142,19 +162,39 @@ export class GatewayBrowserClient {
             password: this.opts.password,
           }
         : undefined;
-    const signedAtMs = Date.now();
-    const nonce = this.connectNonce ?? undefined;
-    const payload = buildDeviceAuthPayload({
-      deviceId: deviceIdentity.deviceId,
-      clientId: this.opts.clientName ?? GATEWAY_CLIENT_NAMES.CONTROL_UI,
-      clientMode: this.opts.mode ?? GATEWAY_CLIENT_MODES.WEBCHAT,
-      role,
-      scopes,
-      signedAtMs,
-      token: authToken ?? null,
-      nonce,
-    });
-    const signature = await signDevicePayload(deviceIdentity.privateKey, payload);
+
+    let device:
+      | {
+          id: string;
+          publicKey: string;
+          signature: string;
+          signedAt: number;
+          nonce: string | undefined;
+        }
+      | undefined;
+
+    if (isSecureContext && deviceIdentity) {
+      const signedAtMs = Date.now();
+      const nonce = this.connectNonce ?? undefined;
+      const payload = buildDeviceAuthPayload({
+        deviceId: deviceIdentity.deviceId,
+        clientId: this.opts.clientName ?? GATEWAY_CLIENT_NAMES.CONTROL_UI,
+        clientMode: this.opts.mode ?? GATEWAY_CLIENT_MODES.WEBCHAT,
+        role,
+        scopes,
+        signedAtMs,
+        token: authToken ?? null,
+        nonce,
+      });
+      const signature = await signDevicePayload(deviceIdentity.privateKey, payload);
+      device = {
+        id: deviceIdentity.deviceId,
+        publicKey: deviceIdentity.publicKey,
+        signature,
+        signedAt: signedAtMs,
+        nonce,
+      };
+    }
     const params = {
       minProtocol: 3,
       maxProtocol: 3,
@@ -167,13 +207,7 @@ export class GatewayBrowserClient {
       },
       role,
       scopes,
-      device: {
-        id: deviceIdentity.deviceId,
-        publicKey: deviceIdentity.publicKey,
-        signature,
-        signedAt: signedAtMs,
-        nonce,
-      },
+      device,
       caps: [],
       auth,
       userAgent: navigator.userAgent,
@@ -182,7 +216,7 @@ export class GatewayBrowserClient {
 
     void this.request<GatewayHelloOk>("connect", params)
       .then((hello) => {
-        if (hello?.auth?.deviceToken) {
+        if (hello?.auth?.deviceToken && deviceIdentity) {
           storeDeviceAuthToken({
             deviceId: deviceIdentity.deviceId,
             role: hello.auth.role ?? role,
@@ -194,7 +228,7 @@ export class GatewayBrowserClient {
         this.opts.onHello?.(hello);
       })
       .catch(() => {
-        if (canFallbackToShared) {
+        if (canFallbackToShared && deviceIdentity) {
           clearDeviceAuthToken({ deviceId: deviceIdentity.deviceId, role });
         }
         this.ws?.close(CONNECT_FAILED_CLOSE_CODE, "connect failed");
@@ -228,17 +262,26 @@ export class GatewayBrowserClient {
         }
         this.lastSeq = seq;
       }
-      this.opts.onEvent?.(evt);
+      try {
+        this.opts.onEvent?.(evt);
+      } catch (err) {
+        console.error("[gateway] event handler error:", err);
+      }
       return;
     }
 
     if (frame.type === "res") {
       const res = parsed as GatewayResponseFrame;
       const pending = this.pending.get(res.id);
-      if (!pending) return;
+      if (!pending) {
+        return;
+      }
       this.pending.delete(res.id);
-      if (res.ok) pending.resolve(res.payload);
-      else pending.reject(new Error(res.error?.message ?? "request failed"));
+      if (res.ok) {
+        pending.resolve(res.payload);
+      } else {
+        pending.reject(new Error(res.error?.message ?? "request failed"));
+      }
       return;
     }
   }
@@ -259,7 +302,9 @@ export class GatewayBrowserClient {
   private queueConnect() {
     this.connectNonce = null;
     this.connectSent = false;
-    if (this.connectTimer !== null) window.clearTimeout(this.connectTimer);
+    if (this.connectTimer !== null) {
+      window.clearTimeout(this.connectTimer);
+    }
     this.connectTimer = window.setTimeout(() => {
       void this.sendConnect();
     }, 750);

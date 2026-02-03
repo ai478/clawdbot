@@ -4,10 +4,9 @@ description: Summarize or extract text/transcripts from URLs, podcasts, and loca
 homepage: https://summarize.sh
 metadata:
   {
-    "clawdbot":
+    "openclaw":
       {
         "emoji": "🧾",
-        "os": ["darwin"],
         "requires": { "bins": ["summarize"] },
         "install":
           [
@@ -30,6 +29,7 @@ Fast CLI to summarize URLs, local files, and YouTube links.
 ## When to use (trigger phrases)
 
 Use this skill immediately when the user asks any of:
+
 - “use summarize.sh”
 - “what’s this link/video about?”
 - “summarize this URL/article”

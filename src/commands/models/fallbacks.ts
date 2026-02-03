@@ -1,6 +1,7 @@
-import { buildModelAliasIndex, resolveModelRefFromString } from "../../agents/model-selection.js";
-import { CONFIG_PATH_CLAWDBOT, loadConfig } from "../../config/config.js";
 import type { RuntimeEnv } from "../../runtime.js";
+import { buildModelAliasIndex, resolveModelRefFromString } from "../../agents/model-selection.js";
+import { loadConfig } from "../../config/config.js";
+import { logConfigUpdated } from "../../config/logging.js";
 import {
   DEFAULT_PROVIDER,
   ensureFlagCompatibility,
@@ -22,7 +23,9 @@ export async function modelsFallbacksListCommand(
     return;
   }
   if (opts.plain) {
-    for (const entry of fallbacks) runtime.log(entry);
+    for (const entry of fallbacks) {
+      runtime.log(entry);
+    }
     return;
   }
 
@@ -31,7 +34,9 @@ export async function modelsFallbacksListCommand(
     runtime.log("- none");
     return;
   }
-  for (const entry of fallbacks) runtime.log(`- ${entry}`);
+  for (const entry of fallbacks) {
+    runtime.log(`- ${entry}`);
+  }
 }
 
 export async function modelsFallbacksAddCommand(modelRaw: string, runtime: RuntimeEnv) {
@@ -39,7 +44,9 @@ export async function modelsFallbacksAddCommand(modelRaw: string, runtime: Runti
     const resolved = resolveModelTarget({ raw: modelRaw, cfg });
     const targetKey = modelKey(resolved.provider, resolved.model);
     const nextModels = { ...cfg.agents?.defaults?.models };
-    if (!nextModels[targetKey]) nextModels[targetKey] = {};
+    if (!nextModels[targetKey]) {
+      nextModels[targetKey] = {};
+    }
     const aliasIndex = buildModelAliasIndex({
       cfg,
       defaultProvider: DEFAULT_PROVIDER,
@@ -56,7 +63,9 @@ export async function modelsFallbacksAddCommand(modelRaw: string, runtime: Runti
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
       .map((entry) => modelKey(entry.ref.provider, entry.ref.model));
 
-    if (existingKeys.includes(targetKey)) return cfg;
+    if (existingKeys.includes(targetKey)) {
+      return cfg;
+    }
 
     const existingModel = cfg.agents?.defaults?.model as
       | { primary?: string; fallbacks?: string[] }
@@ -78,7 +87,7 @@ export async function modelsFallbacksAddCommand(modelRaw: string, runtime: Runti
     };
   });
 
-  runtime.log(`Updated ${CONFIG_PATH_CLAWDBOT}`);
+  logConfigUpdated(runtime);
   runtime.log(`Fallbacks: ${(updated.agents?.defaults?.model?.fallbacks ?? []).join(", ")}`);
 }
 
@@ -97,7 +106,9 @@ export async function modelsFallbacksRemoveCommand(modelRaw: string, runtime: Ru
         defaultProvider: DEFAULT_PROVIDER,
         aliasIndex,
       });
-      if (!resolvedEntry) return true;
+      if (!resolvedEntry) {
+        return true;
+      }
       return modelKey(resolvedEntry.ref.provider, resolvedEntry.ref.model) !== targetKey;
     });
 
@@ -124,7 +135,7 @@ export async function modelsFallbacksRemoveCommand(modelRaw: string, runtime: Ru
     };
   });
 
-  runtime.log(`Updated ${CONFIG_PATH_CLAWDBOT}`);
+  logConfigUpdated(runtime);
   runtime.log(`Fallbacks: ${(updated.agents?.defaults?.model?.fallbacks ?? []).join(", ")}`);
 }
 
@@ -148,6 +159,6 @@ export async function modelsFallbacksClearCommand(runtime: RuntimeEnv) {
     };
   });
 
-  runtime.log(`Updated ${CONFIG_PATH_CLAWDBOT}`);
+  logConfigUpdated(runtime);
   runtime.log("Fallback list cleared.");
 }

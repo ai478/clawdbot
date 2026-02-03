@@ -41,6 +41,11 @@ export type ChannelAccountSnapshot = {
   tokenSource?: string | null;
   botTokenSource?: string | null;
   appTokenSource?: string | null;
+  credentialSource?: string | null;
+  audienceType?: string | null;
+  audience?: string | null;
+  webhookPath?: string | null;
+  webhookUrl?: string | null;
   baseUrl?: string | null;
   allowUnmentionedGroups?: boolean | null;
   cliPath?: string | null;
@@ -130,6 +135,28 @@ export type DiscordStatus = {
   lastStopAt?: number | null;
   lastError?: string | null;
   probe?: DiscordProbe | null;
+  lastProbeAt?: number | null;
+};
+
+export type GoogleChatProbe = {
+  ok: boolean;
+  status?: number | null;
+  error?: string | null;
+  elapsedMs?: number | null;
+};
+
+export type GoogleChatStatus = {
+  configured: boolean;
+  credentialSource?: string | null;
+  audienceType?: string | null;
+  audience?: string | null;
+  webhookPath?: string | null;
+  webhookUrl?: string | null;
+  running: boolean;
+  lastStartAt?: number | null;
+  lastStopAt?: number | null;
+  lastError?: string | null;
+  probe?: GoogleChatProbe | null;
   lastProbeAt?: number | null;
 };
 
@@ -292,6 +319,60 @@ export type PresenceEntry = {
 export type GatewaySessionsDefaults = {
   model: string | null;
   contextTokens: number | null;
+};
+
+export type GatewayAgentRow = {
+  id: string;
+  name?: string;
+  identity?: {
+    name?: string;
+    theme?: string;
+    emoji?: string;
+    avatar?: string;
+    avatarUrl?: string;
+  };
+};
+
+export type AgentsListResult = {
+  defaultId: string;
+  mainKey: string;
+  scope: string;
+  agents: GatewayAgentRow[];
+};
+
+export type AgentIdentityResult = {
+  agentId: string;
+  name: string;
+  avatar: string;
+  emoji?: string;
+};
+
+export type AgentFileEntry = {
+  name: string;
+  path: string;
+  missing: boolean;
+  size?: number;
+  updatedAtMs?: number;
+  content?: string;
+};
+
+export type AgentsFilesListResult = {
+  agentId: string;
+  workspace: string;
+  files: AgentFileEntry[];
+};
+
+export type AgentsFilesGetResult = {
+  agentId: string;
+  workspace: string;
+  file: AgentFileEntry;
+};
+
+export type AgentsFilesSetResult = {
+  ok: true;
+  agentId: string;
+  workspace: string;
+  file: AgentFileEntry;
 };
 
 export type GatewaySessionRow = {
@@ -468,13 +549,7 @@ export type StatusSummary = Record<string, unknown>;
 
 export type HealthSnapshot = Record<string, unknown>;
 
-export type LogLevel =
-  | "trace"
-  | "debug"
-  | "info"
-  | "warn"
-  | "error"
-  | "fatal";
+export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 
 export type LogEntry = {
   raw: string;

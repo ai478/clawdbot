@@ -1,7 +1,5 @@
 import path from "node:path";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import { withTempHome as withTempHomeBase } from "../../test/helpers/temp-home.js";
 import { loadModelCatalog } from "../agents/model-catalog.js";
 import { getReplyFromConfig } from "./reply.js";
@@ -25,7 +23,7 @@ vi.mock("../agents/model-catalog.js", () => ({
 }));
 
 async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
-  return withTempHomeBase(fn, { prefix: "clawdbot-stream-" });
+  return withTempHomeBase(fn, { prefix: "openclaw-stream-" });
 }
 
 describe("block streaming", () => {
@@ -42,7 +40,7 @@ describe("block streaming", () => {
   });
 
   async function waitForCalls(fn: () => number, calls: number) {
-    const deadline = Date.now() + 1500;
+    const deadline = Date.now() + 5000;
     while (fn() < calls) {
       if (Date.now() > deadline) {
         throw new Error(`Expected ${calls} call(s), got ${fn()}`);
@@ -89,7 +87,7 @@ describe("block streaming", () => {
           agents: {
             defaults: {
               model: "anthropic/claude-opus-4-5",
-              workspace: path.join(home, "clawd"),
+              workspace: path.join(home, "openclaw"),
             },
           },
           channels: { whatsapp: { allowFrom: ["*"] } },
@@ -148,7 +146,7 @@ describe("block streaming", () => {
           agents: {
             defaults: {
               model: "anthropic/claude-opus-4-5",
-              workspace: path.join(home, "clawd"),
+              workspace: path.join(home, "openclaw"),
             },
           },
           channels: { telegram: { allowFrom: ["*"] } },
@@ -197,7 +195,7 @@ describe("block streaming", () => {
           agents: {
             defaults: {
               model: "anthropic/claude-opus-4-5",
-              workspace: path.join(home, "clawd"),
+              workspace: path.join(home, "openclaw"),
             },
           },
           channels: { whatsapp: { allowFrom: ["*"] } },
@@ -255,7 +253,7 @@ describe("block streaming", () => {
           agents: {
             defaults: {
               model: "anthropic/claude-opus-4-5",
-              workspace: path.join(home, "clawd"),
+              workspace: path.join(home, "openclaw"),
             },
           },
           channels: { telegram: { allowFrom: ["*"] } },
@@ -297,7 +295,7 @@ describe("block streaming", () => {
           agents: {
             defaults: {
               model: "anthropic/claude-opus-4-5",
-              workspace: path.join(home, "clawd"),
+              workspace: path.join(home, "openclaw"),
             },
           },
           channels: { telegram: { allowFrom: ["*"], streamMode: "block" } },

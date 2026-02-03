@@ -30,6 +30,7 @@ export const MESSAGE_ACTION_TARGET_MODE: Record<ChannelMessageActionName, Messag
     "thread-reply": "to",
     search: "none",
     sticker: "to",
+    "sticker-search": "none",
     "member-info": "none",
     "role-info": "none",
     "emoji-list": "none",
@@ -57,6 +58,7 @@ export const MESSAGE_ACTION_TARGET_MODE: Record<ChannelMessageActionName, Messag
 const ACTION_TARGET_ALIASES: Partial<Record<ChannelMessageActionName, string[]>> = {
   unsend: ["messageId"],
   edit: ["messageId"],
+  react: ["chatGuid", "chatIdentifier", "chatId"],
   renameGroup: ["chatGuid", "chatIdentifier", "chatId"],
   setGroupIcon: ["chatGuid", "chatIdentifier", "chatId"],
   addParticipant: ["chatGuid", "chatIdentifier", "chatId"],
@@ -73,15 +75,25 @@ export function actionHasTarget(
   params: Record<string, unknown>,
 ): boolean {
   const to = typeof params.to === "string" ? params.to.trim() : "";
-  if (to) return true;
+  if (to) {
+    return true;
+  }
   const channelId = typeof params.channelId === "string" ? params.channelId.trim() : "";
-  if (channelId) return true;
+  if (channelId) {
+    return true;
+  }
   const aliases = ACTION_TARGET_ALIASES[action];
-  if (!aliases) return false;
+  if (!aliases) {
+    return false;
+  }
   return aliases.some((alias) => {
     const value = params[alias];
-    if (typeof value === "string") return value.trim().length > 0;
-    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    if (typeof value === "number") {
+      return Number.isFinite(value);
+    }
     return false;
   });
 }

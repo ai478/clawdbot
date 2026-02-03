@@ -1,9 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import { getMemorySearchManager, type MemoryIndexManager } from "./index.js";
 
 const embedBatch = vi.fn(async () => []);
@@ -30,6 +28,7 @@ describe("memory indexing with OpenAI batches", () => {
   let workspaceDir: string;
   let indexPath: string;
   let manager: MemoryIndexManager | null = null;
+  let setTimeoutSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
     embedBatch.mockClear();
@@ -37,13 +36,26 @@ describe("memory indexing with OpenAI batches", () => {
     embedBatch.mockImplementation(async (texts: string[]) =>
       texts.map((_text, index) => [index + 1, 0, 0]),
     );
-    workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-mem-batch-"));
+    const realSetTimeout = setTimeout;
+    setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) => {
+      const delay = typeof timeout === "number" ? timeout : 0;
+      if (delay > 0 && delay <= 2000) {
+        return realSetTimeout(handler, 0, ...args);
+      }
+      return realSetTimeout(handler, delay, ...args);
+    }) as typeof setTimeout);
+    workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-mem-batch-"));
     indexPath = path.join(workspaceDir, "index.sqlite");
     await fs.mkdir(path.join(workspaceDir, "memory"));
   });
 
   afterEach(async () => {
     vi.unstubAllGlobals();
+    setTimeoutSpy.mockRestore();
     if (manager) {
       await manager.close();
       manager = null;
@@ -65,7 +77,9 @@ describe("memory indexing with OpenAI batches", () => {
           throw new Error("expected FormData upload");
         }
         for (const [key, value] of body.entries()) {
-          if (key !== "file") continue;
+          if (key !== "file") {
+            continue;
+          }
           if (typeof value === "string") {
             uploadedRequests = value
               .split("\n")
@@ -126,7 +140,7 @@ describe("memory indexing with OpenAI batches", () => {
             store: { path: indexPath },
             sync: { watch: false, onSessionStart: false, onSearch: false },
             query: { minScore: 0 },
-            remote: { batch: { enabled: true, wait: true } },
+            remote: { batch: { enabled: true, wait: true, pollIntervalMs: 1 } },
           },
         },
         list: [{ id: "main", default: true }],
@@ -135,13 +149,17 @@ describe("memory indexing with OpenAI batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     const labels: string[] = [];
     await manager.sync({
       force: true,
       progress: (update) => {
-        if (update.label) labels.push(update.label);
+        if (update.label) {
+          labels.push(update.label);
+        }
       },
     });
 
@@ -167,7 +185,9 @@ describe("memory indexing with OpenAI batches", () => {
           throw new Error("expected FormData upload");
         }
         for (const [key, value] of body.entries()) {
-          if (key !== "file") continue;
+          if (key !== "file") {
+            continue;
+          }
           if (typeof value === "string") {
             uploadedRequests = value
               .split("\n")
@@ -232,7 +252,7 @@ describe("memory indexing with OpenAI batches", () => {
             store: { path: indexPath },
             sync: { watch: false, onSessionStart: false, onSearch: false },
             query: { minScore: 0 },
-            remote: { batch: { enabled: true, wait: true } },
+            remote: { batch: { enabled: true, wait: true, pollIntervalMs: 1 } },
           },
         },
         list: [{ id: "main", default: true }],
@@ -241,7 +261,9 @@ describe("memory indexing with OpenAI batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     await manager.sync({ force: true });
 
@@ -265,7 +287,9 @@ describe("memory indexing with OpenAI batches", () => {
           throw new Error("expected FormData upload");
         }
         for (const [key, value] of body.entries()) {
-          if (key !== "file") continue;
+          if (key !== "file") {
+            continue;
+          }
           if (typeof value === "string") {
             uploadedRequests = value
               .split("\n")
@@ -329,7 +353,7 @@ describe("memory indexing with OpenAI batches", () => {
             store: { path: indexPath },
             sync: { watch: false, onSessionStart: false, onSearch: false },
             query: { minScore: 0 },
-            remote: { batch: { enabled: true, wait: true } },
+            remote: { batch: { enabled: true, wait: true, pollIntervalMs: 1 } },
           },
         },
         list: [{ id: "main", default: true }],
@@ -338,7 +362,9 @@ describe("memory indexing with OpenAI batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
 
     await manager.sync({ force: true });
@@ -374,7 +400,9 @@ describe("memory indexing with OpenAI batches", () => {
           throw new Error("expected FormData upload");
         }
         for (const [key, value] of body.entries()) {
-          if (key !== "file") continue;
+          if (key !== "file") {
+            continue;
+          }
           if (typeof value === "string") {
             uploadedRequests = value
               .split("\n")
@@ -426,7 +454,7 @@ describe("memory indexing with OpenAI batches", () => {
             store: { path: indexPath },
             sync: { watch: false, onSessionStart: false, onSearch: false },
             query: { minScore: 0 },
-            remote: { batch: { enabled: true, wait: true } },
+            remote: { batch: { enabled: true, wait: true, pollIntervalMs: 1 } },
           },
         },
         list: [{ id: "main", default: true }],
@@ -435,7 +463,9 @@ describe("memory indexing with OpenAI batches", () => {
 
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
 
     await manager.sync({ force: true });

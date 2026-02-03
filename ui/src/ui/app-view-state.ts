@@ -1,9 +1,17 @@
+import type { EventLogEntry } from "./app-events";
+import type { DevicePairingList } from "./controllers/devices";
+import type { ExecApprovalRequest } from "./controllers/exec-approval";
+import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals";
+import type { SkillMessage } from "./controllers/skills";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway";
 import type { Tab } from "./navigation";
 import type { UiSettings } from "./storage";
 import type { ThemeMode } from "./theme";
 import type { ThemeTransitionContext } from "./theme-transition";
 import type {
+  AgentsListResult,
+  AgentsFilesListResult,
+  AgentIdentityResult,
   ChannelsStatusSnapshot,
   ConfigSnapshot,
   CronJob,
@@ -18,21 +26,14 @@ import type {
   SkillStatusReport,
   StatusSummary,
 } from "./types";
-import type { ChatQueueItem, CronFormState } from "./ui-types";
-import type { EventLogEntry } from "./app-events";
-import type { SkillMessage } from "./controllers/skills";
-import type {
-  ExecApprovalsFile,
-  ExecApprovalsSnapshot,
-} from "./controllers/exec-approvals";
-import type { DevicePairingList } from "./controllers/devices";
-import type { ExecApprovalRequest } from "./controllers/exec-approval";
+import type { ChatAttachment, ChatQueueItem, CronFormState } from "./ui-types";
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form";
 
 export type AppViewState = {
   settings: UiSettings;
   password: string;
   tab: Tab;
+  onboarding: boolean;
   basePath: string;
   connected: boolean;
   theme: ThemeMode;
@@ -40,18 +41,25 @@ export type AppViewState = {
   hello: GatewayHelloOk | null;
   lastError: string | null;
   eventLog: EventLogEntry[];
+  assistantName: string;
+  assistantAvatar: string | null;
+  assistantAgentId: string | null;
   sessionKey: string;
   chatLoading: boolean;
   chatSending: boolean;
   chatMessage: string;
+  chatAttachments: ChatAttachment[];
   chatMessages: unknown[];
   chatToolMessages: unknown[];
   chatStream: string | null;
   chatRunId: string | null;
+  chatAvatarUrl: string | null;
   chatThinkingLevel: string | null;
   chatQueue: ChatQueueItem[];
   nodesLoading: boolean;
   nodes: Array<Record<string, unknown>>;
+  chatNewMessagesBelow: boolean;
+  scrollToBottom: () => void;
   devicesLoading: boolean;
   devicesError: string | null;
   devicesList: DevicePairingList | null;
@@ -66,18 +74,21 @@ export type AppViewState = {
   execApprovalQueue: ExecApprovalRequest[];
   execApprovalBusy: boolean;
   execApprovalError: string | null;
+  pendingGatewayUrl: string | null;
   configLoading: boolean;
   configRaw: string;
+  configRawOriginal: string;
   configValid: boolean | null;
   configIssues: unknown[];
   configSaving: boolean;
   configApplying: boolean;
   updateRunning: boolean;
   configSnapshot: ConfigSnapshot | null;
-  configSchema: unknown | null;
+  configSchema: unknown;
   configSchemaLoading: boolean;
   configUiHints: Record<string, unknown>;
   configForm: Record<string, unknown> | null;
+  configFormOriginal: Record<string, unknown> | null;
   configFormMode: "form" | "raw";
   channelsLoading: boolean;
   channelsSnapshot: ChannelsStatusSnapshot | null;
@@ -94,6 +105,25 @@ export type AppViewState = {
   presenceEntries: PresenceEntry[];
   presenceError: string | null;
   presenceStatus: string | null;
+  agentsLoading: boolean;
+  agentsList: AgentsListResult | null;
+  agentsError: string | null;
+  agentsSelectedId: string | null;
+  agentsPanel: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
+  agentFilesLoading: boolean;
+  agentFilesError: string | null;
+  agentFilesList: AgentsFilesListResult | null;
+  agentFileContents: Record<string, string>;
+  agentFileDrafts: Record<string, string>;
+  agentFileActive: string | null;
+  agentFileSaving: boolean;
+  agentIdentityLoading: boolean;
+  agentIdentityError: string | null;
+  agentIdentityById: Record<string, AgentIdentityResult>;
+  agentSkillsLoading: boolean;
+  agentSkillsError: string | null;
+  agentSkillsReport: SkillStatusReport | null;
+  agentSkillsAgentId: string | null;
   sessionsLoading: boolean;
   sessionsResult: SessionsListResult | null;
   sessionsError: string | null;
@@ -120,7 +150,7 @@ export type AppViewState = {
   debugStatus: StatusSummary | null;
   debugHealth: HealthSnapshot | null;
   debugModels: unknown[];
-  debugHeartbeat: unknown | null;
+  debugHeartbeat: unknown;
   debugCallMethod: string;
   debugCallParams: string;
   debugCallResult: string | null;
@@ -139,6 +169,7 @@ export type AppViewState = {
   setTheme: (theme: ThemeMode, context?: ThemeTransitionContext) => void;
   applySettings: (next: UiSettings) => void;
   loadOverview: () => Promise<void>;
+  loadAssistantIdentity: () => Promise<void>;
   loadCron: () => Promise<void>;
   handleWhatsAppStart: (force: boolean) => Promise<void>;
   handleWhatsAppWait: () => Promise<void>;
@@ -152,6 +183,8 @@ export type AppViewState = {
   handleNostrProfileImport: () => Promise<void>;
   handleNostrProfileToggleAdvanced: () => void;
   handleExecApprovalDecision: (decision: "allow-once" | "allow-always" | "deny") => Promise<void>;
+  handleGatewayUrlConfirm: () => void;
+  handleGatewayUrlCancel: () => void;
   handleConfigLoad: () => Promise<void>;
   handleConfigSave: () => Promise<void>;
   handleConfigApply: () => Promise<void>;

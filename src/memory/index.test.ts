@@ -1,9 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import { getMemorySearchManager, type MemoryIndexManager } from "./index.js";
 
 let embedBatchCalls = 0;
@@ -43,7 +41,7 @@ describe("memory index", () => {
   beforeEach(async () => {
     embedBatchCalls = 0;
     failEmbeddings = false;
-    workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-mem-"));
+    workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-mem-"));
     indexPath = path.join(workspaceDir, "index.sqlite");
     await fs.mkdir(path.join(workspaceDir, "memory"));
     await fs.writeFile(
@@ -79,7 +77,9 @@ describe("memory index", () => {
     };
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     await result.manager.sync({ force: true });
     const results = await result.manager.search("alpha");
@@ -130,7 +130,9 @@ describe("memory index", () => {
       agentId: "main",
     });
     expect(first.manager).not.toBeNull();
-    if (!first.manager) throw new Error("manager missing");
+    if (!first.manager) {
+      throw new Error("manager missing");
+    }
     await first.manager.sync({ force: true });
     await first.manager.close();
 
@@ -151,8 +153,11 @@ describe("memory index", () => {
       agentId: "main",
     });
     expect(second.manager).not.toBeNull();
-    if (!second.manager) throw new Error("manager missing");
+    if (!second.manager) {
+      throw new Error("manager missing");
+    }
     manager = second.manager;
+    await second.manager.sync({ reason: "test" });
     const results = await second.manager.search("alpha");
     expect(results.length).toBeGreaterThan(0);
   });
@@ -176,7 +181,9 @@ describe("memory index", () => {
     };
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     await manager.sync({ force: true });
     const afterFirst = embedBatchCalls;
@@ -205,7 +212,9 @@ describe("memory index", () => {
     };
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
 
     await manager.sync({ force: true });
@@ -244,12 +253,17 @@ describe("memory index", () => {
     };
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
 
     const status = manager.status();
-    if (!status.fts?.available) return;
+    if (!status.fts?.available) {
+      return;
+    }
 
+    await manager.sync({ force: true });
     const results = await manager.search("zebra");
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]?.path).toContain("memory/2026-01-12.md");
@@ -292,12 +306,17 @@ describe("memory index", () => {
     };
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
 
     const status = manager.status();
-    if (!status.fts?.available) return;
+    if (!status.fts?.available) {
+      return;
+    }
 
+    await manager.sync({ force: true });
     const results = await manager.search("alpha beta id123");
     expect(results.length).toBeGreaterThan(0);
     const paths = results.map((r) => r.path);
@@ -345,12 +364,17 @@ describe("memory index", () => {
     };
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
 
     const status = manager.status();
-    if (!status.fts?.available) return;
+    if (!status.fts?.available) {
+      return;
+    }
 
+    await manager.sync({ force: true });
     const results = await manager.search("alpha beta id123");
     expect(results.length).toBeGreaterThan(0);
     const paths = results.map((r) => r.path);
@@ -378,7 +402,9 @@ describe("memory index", () => {
     };
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     const available = await result.manager.probeVectorAvailability();
     const status = result.manager.status();
@@ -404,8 +430,60 @@ describe("memory index", () => {
     };
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     expect(result.manager).not.toBeNull();
-    if (!result.manager) throw new Error("manager missing");
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
     manager = result.manager;
     await expect(result.manager.readFile({ relPath: "NOTES.md" })).rejects.toThrow("path required");
+  });
+
+  it("allows reading from additional memory paths and blocks symlinks", async () => {
+    const extraDir = path.join(workspaceDir, "extra");
+    await fs.mkdir(extraDir, { recursive: true });
+    await fs.writeFile(path.join(extraDir, "extra.md"), "Extra content.");
+
+    const cfg = {
+      agents: {
+        defaults: {
+          workspace: workspaceDir,
+          memorySearch: {
+            provider: "openai",
+            model: "mock-embed",
+            store: { path: indexPath },
+            sync: { watch: false, onSessionStart: false, onSearch: true },
+            extraPaths: [extraDir],
+          },
+        },
+        list: [{ id: "main", default: true }],
+      },
+    };
+    const result = await getMemorySearchManager({ cfg, agentId: "main" });
+    expect(result.manager).not.toBeNull();
+    if (!result.manager) {
+      throw new Error("manager missing");
+    }
+    manager = result.manager;
+    await expect(result.manager.readFile({ relPath: "extra/extra.md" })).resolves.toEqual({
+      path: "extra/extra.md",
+      text: "Extra content.",
+    });
+
+    const linkPath = path.join(extraDir, "linked.md");
+    let symlinkOk = true;
+    try {
+      await fs.symlink(path.join(extraDir, "extra.md"), linkPath, "file");
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EACCES") {
+        symlinkOk = false;
+      } else {
+        throw err;
+      }
+    }
+    if (symlinkOk) {
+      await expect(result.manager.readFile({ relPath: "extra/linked.md" })).rejects.toThrow(
+        "path required",
+      );
+    }
   });
 });

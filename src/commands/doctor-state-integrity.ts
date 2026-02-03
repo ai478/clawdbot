@@ -1,9 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-
+import type { OpenClawConfig } from "../config/config.js";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
-import type { ClawdbotConfig } from "../config/config.js";
 import { resolveOAuthDir, resolveStateDir } from "../config/paths.js";
 import {
   loadSessionStore,
@@ -13,6 +12,7 @@ import {
   resolveStorePath,
 } from "../config/sessions.js";
 import { note } from "../terminal/note.js";
+import { shortenHomePath } from "../utils.js";
 
 type DoctorPrompterLike = {
   confirmSkipInNonInteractive: (params: {
@@ -80,12 +80,18 @@ function addUserRwx(mode: number): number {
 function countJsonlLines(filePath: string): number {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
-    if (!raw) return 0;
+    if (!raw) {
+      return 0;
+    }
     let count = 0;
     for (let i = 0; i < raw.length; i += 1) {
-      if (raw[i] === "\n") count += 1;
+      if (raw[i] === "\n") {
+        count += 1;
+      }
     }
-    if (!raw.endsWith("\n")) count += 1;
+    if (!raw.endsWith("\n")) {
+      count += 1;
+    }
     return count;
   } catch {
     return 0;
@@ -105,18 +111,28 @@ function findOtherStateDirs(stateDir: string): string[] {
       continue;
     }
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.startsWith(".")) continue;
-      const candidate = path.resolve(root, entry.name, ".clawdbot");
-      if (candidate === resolvedState) continue;
-      if (existsDir(candidate)) found.push(candidate);
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      if (entry.name.startsWith(".")) {
+        continue;
+      }
+      const candidates = [".openclaw"].map((dir) => path.resolve(root, entry.name, dir));
+      for (const candidate of candidates) {
+        if (candidate === resolvedState) {
+          continue;
+        }
+        if (existsDir(candidate)) {
+          found.push(candidate);
+        }
+      }
     }
   }
   return found;
 }
 
 export async function noteStateIntegrity(
-  cfg: ClawdbotConfig,
+  cfg: OpenClawConfig,
   prompter: DoctorPrompterLike,
   configPath?: string,
 ) {
@@ -125,17 +141,22 @@ export async function noteStateIntegrity(
   const env = process.env;
   const homedir = os.homedir;
   const stateDir = resolveStateDir(env, homedir);
-  const defaultStateDir = path.join(homedir(), ".clawdbot");
+  const defaultStateDir = path.join(homedir(), ".openclaw");
   const oauthDir = resolveOAuthDir(env, stateDir);
   const agentId = resolveDefaultAgentId(cfg);
   const sessionsDir = resolveSessionTranscriptsDirForAgent(agentId, env, homedir);
   const storePath = resolveStorePath(cfg.session?.store, { agentId });
   const storeDir = path.dirname(storePath);
+  const displayStateDir = shortenHomePath(stateDir);
+  const displayOauthDir = shortenHomePath(oauthDir);
+  const displaySessionsDir = shortenHomePath(sessionsDir);
+  const displayStoreDir = shortenHomePath(storeDir);
+  const displayConfigPath = configPath ? shortenHomePath(configPath) : undefined;
 
   let stateDirExists = existsDir(stateDir);
   if (!stateDirExists) {
     warnings.push(
-      `- CRITICAL: state directory missing (${stateDir}). Sessions, credentials, logs, and config are stored there.`,
+      `- CRITICAL: state directory missing (${displayStateDir}). Sessions, credentials, logs, and config are stored there.`,
     );
     if (cfg.gateway?.mode === "remote") {
       warnings.push(
@@ -143,26 +164,28 @@ export async function noteStateIntegrity(
       );
     }
     const create = await prompter.confirmSkipInNonInteractive({
-      message: `Create ${stateDir} now?`,
+      message: `Create ${displayStateDir} now?`,
       initialValue: false,
     });
     if (create) {
       const created = ensureDir(stateDir);
       if (created.ok) {
-        changes.push(`- Created ${stateDir}`);
+        changes.push(`- Created ${displayStateDir}`);
         stateDirExists = true;
       } else {
-        warnings.push(`- Failed to create ${stateDir}: ${created.error}`);
+        warnings.push(`- Failed to create ${displayStateDir}: ${created.error}`);
       }
     }
   }
 
   if (stateDirExists && !canWriteDir(stateDir)) {
-    warnings.push(`- State directory not writable (${stateDir}).`);
+    warnings.push(`- State directory not writable (${displayStateDir}).`);
     const hint = dirPermissionHint(stateDir);
-    if (hint) warnings.push(`  ${hint}`);
+    if (hint) {
+      warnings.push(`  ${hint}`);
+    }
     const repair = await prompter.confirmSkipInNonInteractive({
-      message: `Repair permissions on ${stateDir}?`,
+      message: `Repair permissions on ${displayStateDir}?`,
       initialValue: true,
     });
     if (repair) {
@@ -170,9 +193,9 @@ export async function noteStateIntegrity(
         const stat = fs.statSync(stateDir);
         const target = addUserRwx(stat.mode);
         fs.chmodSync(stateDir, target);
-        changes.push(`- Repaired permissions on ${stateDir}`);
+        changes.push(`- Repaired permissions on ${displayStateDir}`);
       } catch (err) {
-        warnings.push(`- Failed to repair ${stateDir}: ${String(err)}`);
+        warnings.push(`- Failed to repair ${displayStateDir}: ${String(err)}`);
       }
     }
   }
@@ -181,19 +204,19 @@ export async function noteStateIntegrity(
       const stat = fs.statSync(stateDir);
       if ((stat.mode & 0o077) !== 0) {
         warnings.push(
-          `- State directory permissions are too open (${stateDir}). Recommend chmod 700.`,
+          `- State directory permissions are too open (${displayStateDir}). Recommend chmod 700.`,
         );
         const tighten = await prompter.confirmSkipInNonInteractive({
-          message: `Tighten permissions on ${stateDir} to 700?`,
+          message: `Tighten permissions on ${displayStateDir} to 700?`,
           initialValue: true,
         });
         if (tighten) {
           fs.chmodSync(stateDir, 0o700);
-          changes.push(`- Tightened permissions on ${stateDir} to 700`);
+          changes.push(`- Tightened permissions on ${displayStateDir} to 700`);
         }
       }
     } catch (err) {
-      warnings.push(`- Failed to read ${stateDir} permissions: ${String(err)}`);
+      warnings.push(`- Failed to read ${displayStateDir} permissions: ${String(err)}`);
     }
   }
 
@@ -202,19 +225,21 @@ export async function noteStateIntegrity(
       const stat = fs.statSync(configPath);
       if ((stat.mode & 0o077) !== 0) {
         warnings.push(
-          `- Config file is group/world readable (${configPath}). Recommend chmod 600.`,
+          `- Config file is group/world readable (${displayConfigPath ?? configPath}). Recommend chmod 600.`,
         );
         const tighten = await prompter.confirmSkipInNonInteractive({
-          message: `Tighten permissions on ${configPath} to 600?`,
+          message: `Tighten permissions on ${displayConfigPath ?? configPath} to 600?`,
           initialValue: true,
         });
         if (tighten) {
           fs.chmodSync(configPath, 0o600);
-          changes.push(`- Tightened permissions on ${configPath} to 600`);
+          changes.push(`- Tightened permissions on ${displayConfigPath ?? configPath} to 600`);
         }
       }
     } catch (err) {
-      warnings.push(`- Failed to read config permissions (${configPath}): ${String(err)}`);
+      warnings.push(
+        `- Failed to read config permissions (${displayConfigPath ?? configPath}): ${String(err)}`,
+      );
     }
   }
 
@@ -223,28 +248,43 @@ export async function noteStateIntegrity(
     dirCandidates.set(sessionsDir, "Sessions dir");
     dirCandidates.set(storeDir, "Session store dir");
     dirCandidates.set(oauthDir, "OAuth dir");
+    const displayDirFor = (dir: string) => {
+      if (dir === sessionsDir) {
+        return displaySessionsDir;
+      }
+      if (dir === storeDir) {
+        return displayStoreDir;
+      }
+      if (dir === oauthDir) {
+        return displayOauthDir;
+      }
+      return shortenHomePath(dir);
+    };
 
     for (const [dir, label] of dirCandidates) {
+      const displayDir = displayDirFor(dir);
       if (!existsDir(dir)) {
-        warnings.push(`- CRITICAL: ${label} missing (${dir}).`);
+        warnings.push(`- CRITICAL: ${label} missing (${displayDir}).`);
         const create = await prompter.confirmSkipInNonInteractive({
-          message: `Create ${label} at ${dir}?`,
+          message: `Create ${label} at ${displayDir}?`,
           initialValue: true,
         });
         if (create) {
           const created = ensureDir(dir);
           if (created.ok) {
-            changes.push(`- Created ${label}: ${dir}`);
+            changes.push(`- Created ${label}: ${displayDir}`);
           } else {
-            warnings.push(`- Failed to create ${dir}: ${created.error}`);
+            warnings.push(`- Failed to create ${displayDir}: ${created.error}`);
           }
         }
         continue;
       }
       if (!canWriteDir(dir)) {
-        warnings.push(`- ${label} not writable (${dir}).`);
+        warnings.push(`- ${label} not writable (${displayDir}).`);
         const hint = dirPermissionHint(dir);
-        if (hint) warnings.push(`  ${hint}`);
+        if (hint) {
+          warnings.push(`  ${hint}`);
+        }
         const repair = await prompter.confirmSkipInNonInteractive({
           message: `Repair permissions on ${label}?`,
           initialValue: true,
@@ -254,9 +294,9 @@ export async function noteStateIntegrity(
             const stat = fs.statSync(dir);
             const target = addUserRwx(stat.mode);
             fs.chmodSync(dir, target);
-            changes.push(`- Repaired permissions on ${label}: ${dir}`);
+            changes.push(`- Repaired permissions on ${label}: ${displayDir}`);
           } catch (err) {
-            warnings.push(`- Failed to repair ${dir}: ${String(err)}`);
+            warnings.push(`- Failed to repair ${displayDir}: ${String(err)}`);
           }
         }
       }
@@ -265,7 +305,9 @@ export async function noteStateIntegrity(
 
   const extraStateDirs = new Set<string>();
   if (path.resolve(stateDir) !== path.resolve(defaultStateDir)) {
-    if (existsDir(defaultStateDir)) extraStateDirs.add(defaultStateDir);
+    if (existsDir(defaultStateDir)) {
+      extraStateDirs.add(defaultStateDir);
+    }
   }
   for (const other of findOtherStateDirs(stateDir)) {
     extraStateDirs.add(other);
@@ -274,8 +316,8 @@ export async function noteStateIntegrity(
     warnings.push(
       [
         "- Multiple state directories detected. This can split session history.",
-        ...Array.from(extraStateDirs).map((dir) => `  - ${dir}`),
-        `  Active state dir: ${stateDir}`,
+        ...Array.from(extraStateDirs).map((dir) => `  - ${shortenHomePath(dir)}`),
+        `  Active state dir: ${displayStateDir}`,
       ].join("\n"),
     );
   }
@@ -285,7 +327,7 @@ export async function noteStateIntegrity(
   if (entries.length > 0) {
     const recent = entries
       .slice()
-      .sort((a, b) => {
+      .toSorted((a, b) => {
         const aUpdated = typeof a[1].updatedAt === "number" ? a[1].updatedAt : 0;
         const bUpdated = typeof b[1].updatedAt === "number" ? b[1].updatedAt : 0;
         return bUpdated - aUpdated;
@@ -293,7 +335,9 @@ export async function noteStateIntegrity(
       .slice(0, 5);
     const missing = recent.filter(([, entry]) => {
       const sessionId = entry.sessionId;
-      if (!sessionId) return false;
+      if (!sessionId) {
+        return false;
+      }
       const transcriptPath = resolveSessionFilePath(sessionId, entry, {
         agentId,
       });
@@ -311,7 +355,7 @@ export async function noteStateIntegrity(
       const transcriptPath = resolveSessionFilePath(mainEntry.sessionId, mainEntry, { agentId });
       if (!existsFile(transcriptPath)) {
         warnings.push(
-          `- Main session transcript missing (${transcriptPath}). History will appear to reset.`,
+          `- Main session transcript missing (${shortenHomePath(transcriptPath)}). History will appear to reset.`,
         );
       } else {
         const lineCount = countJsonlLines(transcriptPath);
@@ -333,13 +377,17 @@ export async function noteStateIntegrity(
 }
 
 export function noteWorkspaceBackupTip(workspaceDir: string) {
-  if (!existsDir(workspaceDir)) return;
+  if (!existsDir(workspaceDir)) {
+    return;
+  }
   const gitMarker = path.join(workspaceDir, ".git");
-  if (fs.existsSync(gitMarker)) return;
+  if (fs.existsSync(gitMarker)) {
+    return;
+  }
   note(
     [
       "- Tip: back up the workspace in a private git repo (GitHub or GitLab).",
-      "- Keep ~/.clawdbot out of git; it contains credentials and session history.",
+      "- Keep ~/.openclaw out of git; it contains credentials and session history.",
       "- Details: /concepts/agent-workspace#git-backup-recommended",
     ].join("\n"),
     "Workspace",

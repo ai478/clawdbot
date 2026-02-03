@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-
 import type { ExecApprovalDecision } from "../infra/exec-approvals.js";
 
 export type ExecApprovalRequestPayload = {
@@ -33,11 +32,15 @@ type PendingEntry = {
 export class ExecApprovalManager {
   private pending = new Map<string, PendingEntry>();
 
-  create(request: ExecApprovalRequestPayload, timeoutMs: number): ExecApprovalRecord {
+  create(
+    request: ExecApprovalRequestPayload,
+    timeoutMs: number,
+    id?: string | null,
+  ): ExecApprovalRecord {
     const now = Date.now();
-    const id = randomUUID();
+    const resolvedId = id && id.trim().length > 0 ? id.trim() : randomUUID();
     const record: ExecApprovalRecord = {
-      id,
+      id: resolvedId,
       request,
       createdAtMs: now,
       expiresAtMs: now + timeoutMs,
@@ -60,7 +63,9 @@ export class ExecApprovalManager {
 
   resolve(recordId: string, decision: ExecApprovalDecision, resolvedBy?: string | null): boolean {
     const pending = this.pending.get(recordId);
-    if (!pending) return false;
+    if (!pending) {
+      return false;
+    }
     clearTimeout(pending.timer);
     pending.record.resolvedAtMs = Date.now();
     pending.record.decision = decision;

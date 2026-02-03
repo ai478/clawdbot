@@ -2,9 +2,27 @@ import AjvPkg, { type ErrorObject } from "ajv";
 import {
   type AgentEvent,
   AgentEventSchema,
+  type AgentIdentityParams,
+  AgentIdentityParamsSchema,
+  type AgentIdentityResult,
+  AgentIdentityResultSchema,
   AgentParamsSchema,
   type AgentSummary,
   AgentSummarySchema,
+  type AgentsFileEntry,
+  AgentsFileEntrySchema,
+  type AgentsFilesGetParams,
+  AgentsFilesGetParamsSchema,
+  type AgentsFilesGetResult,
+  AgentsFilesGetResultSchema,
+  type AgentsFilesListParams,
+  AgentsFilesListParamsSchema,
+  type AgentsFilesListResult,
+  AgentsFilesListResultSchema,
+  type AgentsFilesSetParams,
+  AgentsFilesSetParamsSchema,
+  type AgentsFilesSetResult,
+  AgentsFilesSetResultSchema,
   type AgentsListParams,
   AgentsListParamsSchema,
   type AgentsListResult,
@@ -136,6 +154,8 @@ import {
   SessionsListParamsSchema,
   type SessionsPatchParams,
   SessionsPatchParamsSchema,
+  type SessionsPreviewParams,
+  SessionsPreviewParamsSchema,
   type SessionsResetParams,
   SessionsResetParamsSchema,
   type SessionsResolveParams,
@@ -198,9 +218,20 @@ export const validateEventFrame = ajv.compile<EventFrame>(EventFrameSchema);
 export const validateSendParams = ajv.compile(SendParamsSchema);
 export const validatePollParams = ajv.compile<PollParams>(PollParamsSchema);
 export const validateAgentParams = ajv.compile(AgentParamsSchema);
+export const validateAgentIdentityParams =
+  ajv.compile<AgentIdentityParams>(AgentIdentityParamsSchema);
 export const validateAgentWaitParams = ajv.compile<AgentWaitParams>(AgentWaitParamsSchema);
 export const validateWakeParams = ajv.compile<WakeParams>(WakeParamsSchema);
 export const validateAgentsListParams = ajv.compile<AgentsListParams>(AgentsListParamsSchema);
+export const validateAgentsFilesListParams = ajv.compile<AgentsFilesListParams>(
+  AgentsFilesListParamsSchema,
+);
+export const validateAgentsFilesGetParams = ajv.compile<AgentsFilesGetParams>(
+  AgentsFilesGetParamsSchema,
+);
+export const validateAgentsFilesSetParams = ajv.compile<AgentsFilesSetParams>(
+  AgentsFilesSetParamsSchema,
+);
 export const validateNodePairRequestParams = ajv.compile<NodePairRequestParams>(
   NodePairRequestParamsSchema,
 );
@@ -223,6 +254,9 @@ export const validateNodeInvokeResultParams = ajv.compile<NodeInvokeResultParams
 );
 export const validateNodeEventParams = ajv.compile<NodeEventParams>(NodeEventParamsSchema);
 export const validateSessionsListParams = ajv.compile<SessionsListParams>(SessionsListParamsSchema);
+export const validateSessionsPreviewParams = ajv.compile<SessionsPreviewParams>(
+  SessionsPreviewParamsSchema,
+);
 export const validateSessionsResolveParams = ajv.compile<SessionsResolveParams>(
   SessionsResolveParamsSchema,
 );
@@ -310,7 +344,9 @@ export const validateWebLoginStartParams =
 export const validateWebLoginWaitParams = ajv.compile<WebLoginWaitParams>(WebLoginWaitParamsSchema);
 
 export function formatValidationErrors(errors: ErrorObject[] | null | undefined) {
-  if (!errors?.length) return "unknown validation error";
+  if (!errors?.length) {
+    return "unknown validation error";
+  }
 
   const parts: string[] = [];
 
@@ -359,6 +395,8 @@ export {
   SendParamsSchema,
   PollParamsSchema,
   AgentParamsSchema,
+  AgentIdentityParamsSchema,
+  AgentIdentityResultSchema,
   WakeParamsSchema,
   NodePairRequestParamsSchema,
   NodePairListParamsSchema,
@@ -368,6 +406,7 @@ export {
   NodeListParamsSchema,
   NodeInvokeParamsSchema,
   SessionsListParamsSchema,
+  SessionsPreviewParamsSchema,
   SessionsPatchParamsSchema,
   SessionsResetParamsSchema,
   SessionsDeleteParamsSchema,
@@ -392,6 +431,13 @@ export {
   WebLoginStartParamsSchema,
   WebLoginWaitParamsSchema,
   AgentSummarySchema,
+  AgentsFileEntrySchema,
+  AgentsFilesListParamsSchema,
+  AgentsFilesListResultSchema,
+  AgentsFilesGetParamsSchema,
+  AgentsFilesGetResultSchema,
+  AgentsFilesSetParamsSchema,
+  AgentsFilesSetResultSchema,
   AgentsListParamsSchema,
   AgentsListResultSchema,
   ModelsListParamsSchema,
@@ -432,6 +478,8 @@ export type {
   ErrorShape,
   StateVersion,
   AgentEvent,
+  AgentIdentityParams,
+  AgentIdentityResult,
   AgentWaitParams,
   ChatEvent,
   TickEvent,
@@ -464,6 +512,13 @@ export type {
   WebLoginStartParams,
   WebLoginWaitParams,
   AgentSummary,
+  AgentsFileEntry,
+  AgentsFilesListParams,
+  AgentsFilesListResult,
+  AgentsFilesGetParams,
+  AgentsFilesGetResult,
+  AgentsFilesSetParams,
+  AgentsFilesSetResult,
   AgentsListParams,
   AgentsListResult,
   SkillsStatusParams,
@@ -478,6 +533,7 @@ export type {
   NodeInvokeResultParams,
   NodeEventParams,
   SessionsListParams,
+  SessionsPreviewParams,
   SessionsResolveParams,
   SessionsPatchParams,
   SessionsResetParams,

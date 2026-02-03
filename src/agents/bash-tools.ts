@@ -8,6 +8,9 @@ import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 
 import type { ExecAsk, ExecHost, ExecSecurity } from "../infra/exec-approvals.js";
+import type { AnyAgentTool } from "./pi-tools.types.js";
+import type { ElevatedLevel } from "../auto-reply/thinking.js";
+import { resolveEffectiveToolPolicy } from "./pi-tools.policy.js";
 import { logInfo } from "../logger.js";
 import { sliceUtf16Safe } from "../utils.js";
 import {
@@ -74,6 +77,8 @@ export type ExecToolDefaults = {
   messageProvider?: string;
   notifyOnExit?: boolean;
   cwd?: string;
+  safeBins?: string[];
+  approvalRunningNoticeMs?: number;
 };
 
 export type ProcessToolDefaults = {
@@ -91,7 +96,7 @@ export type BashSandboxConfig = {
 export type ExecElevatedDefaults = {
   enabled: boolean;
   allowed: boolean;
-  defaultLevel: "on" | "off";
+  defaultLevel: ElevatedLevel;
 };
 
 const execSchema = Type.Object({
@@ -122,20 +127,20 @@ const execSchema = Type.Object({
 
 export type ExecToolDetails =
   | {
-      status: "running";
-      sessionId: string;
-      pid?: number;
-      startedAt: number;
-      cwd?: string;
-      tail?: string;
-    }
+    status: "running";
+    sessionId: string;
+    pid?: number;
+    startedAt: number;
+    cwd?: string;
+    tail?: string;
+  }
   | {
-      status: "completed" | "failed";
-      exitCode: number | null;
-      durationMs: number;
-      aggregated: string;
-      cwd?: string;
-    };
+    status: "completed" | "failed";
+    exitCode: number | null;
+    durationMs: number;
+    aggregated: string;
+    cwd?: string;
+  };
 
 export function createExecTool(
   defaults?: ExecToolDefaults,
@@ -189,11 +194,11 @@ export function createExecTool(
         ? backgroundRequested
           ? 0
           : clampNumber(
-              params.yieldMs ?? defaultBackgroundMs,
-              defaultBackgroundMs,
-              10,
-              120_000,
-            )
+            params.yieldMs ?? defaultBackgroundMs,
+            defaultBackgroundMs,
+            10,
+            120_000,
+          )
         : null;
       const elevatedDefaults = defaults?.elevated;
       const elevatedDefaultOn =
@@ -259,36 +264,36 @@ export function createExecTool(
       const mergedEnv = params.env ? { ...baseEnv, ...params.env } : baseEnv;
       const env = sandbox
         ? buildSandboxEnv({
-            paramsEnv: params.env,
-            sandboxEnv: sandbox.env,
-            containerWorkdir: containerWorkdir ?? sandbox.containerWorkdir,
-          })
+          paramsEnv: params.env,
+          sandboxEnv: sandbox.env,
+          containerWorkdir: containerWorkdir ?? sandbox.containerWorkdir,
+        })
         : mergedEnv;
       const child = sandbox
         ? spawn(
-            "docker",
-            buildDockerExecArgs({
-              containerName: sandbox.containerName,
-              command: params.command,
-              workdir: containerWorkdir ?? sandbox.containerWorkdir,
-              env,
-              tty: false,
-            }),
-            {
-              cwd: workdir,
-              env: process.env,
-              detached: process.platform !== "win32",
-              stdio: ["pipe", "pipe", "pipe"],
-              windowsHide: true,
-            },
-          )
-        : spawn(shell, [...shellArgs, params.command], {
-            cwd: workdir,
+          "docker",
+          buildDockerExecArgs({
+            containerName: sandbox.containerName,
+            command: params.command,
+            workdir: containerWorkdir ?? sandbox.containerWorkdir,
             env,
+            tty: false,
+          }),
+          {
+            cwd: workdir,
+            env: process.env,
             detached: process.platform !== "win32",
             stdio: ["pipe", "pipe", "pipe"],
             windowsHide: true,
-          });
+          },
+        )
+        : spawn(shell, [...shellArgs, params.command], {
+          cwd: workdir,
+          env,
+          detached: process.platform !== "win32",
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
+        });
 
       const session = {
         id: sessionId,
@@ -625,13 +630,11 @@ export function createProcessTool(
                     type: "text",
                     text:
                       (scopedFinished.tail ||
-                        `(no output recorded${
-                          scopedFinished.truncated ? " — truncated to cap" : ""
+                        `(no output recorded${scopedFinished.truncated ? " — truncated to cap" : ""
                         })`) +
-                      `\n\nProcess exited with ${
-                        scopedFinished.exitSignal
-                          ? `signal ${scopedFinished.exitSignal}`
-                          : `code ${scopedFinished.exitCode ?? 0}`
+                      `\n\nProcess exited with ${scopedFinished.exitSignal
+                        ? `signal ${scopedFinished.exitSignal}`
+                        : `code ${scopedFinished.exitCode ?? 0}`
                       }.`,
                   },
                 ],
@@ -698,9 +701,8 @@ export function createProcessTool(
                 text:
                   (output || "(no new output)") +
                   (exited
-                    ? `\n\nProcess exited with ${
-                        exitSignal ? `signal ${exitSignal}` : `code ${exitCode}`
-                      }.`
+                    ? `\n\nProcess exited with ${exitSignal ? `signal ${exitSignal}` : `code ${exitCode}`
+                    }.`
                     : "\n\nProcess still running."),
               },
             ],
@@ -831,9 +833,8 @@ export function createProcessTool(
             content: [
               {
                 type: "text",
-                text: `Wrote ${(params.data ?? "").length} bytes to session ${
-                  params.sessionId
-                }${params.eof ? " (stdin closed)" : ""}.`,
+                text: `Wrote ${(params.data ?? "").length} bytes to session ${params.sessionId
+                  }${params.eof ? " (stdin closed)" : ""}.`,
               },
             ],
             details: {

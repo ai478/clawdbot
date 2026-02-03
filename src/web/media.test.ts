@@ -1,20 +1,53 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-
 import sharp from "sharp";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { loadWebMedia } from "./media.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as ssrf from "../infra/net/ssrf.js";
+import { optimizeImageToPng } from "../media/image-ops.js";
+import { loadWebMedia, loadWebMediaRaw, optimizeImageToJpeg } from "./media.js";
 
 const tmpFiles: string[] = [];
+
+async function writeTempFile(buffer: Buffer, ext: string): Promise<string> {
+  const file = path.join(
+    os.tmpdir(),
+    `openclaw-media-${Date.now()}-${Math.random().toString(16).slice(2)}${ext}`,
+  );
+  tmpFiles.push(file);
+  await fs.writeFile(file, buffer);
+  return file;
+}
+
+function buildDeterministicBytes(length: number): Buffer {
+  const buffer = Buffer.allocUnsafe(length);
+  let seed = 0x12345678;
+  for (let i = 0; i < length; i++) {
+    seed = (1103515245 * seed + 12345) & 0x7fffffff;
+    buffer[i] = seed & 0xff;
+  }
+  return buffer;
+}
 
 afterEach(async () => {
   await Promise.all(tmpFiles.map((file) => fs.rm(file, { force: true })));
   tmpFiles.length = 0;
+  vi.restoreAllMocks();
 });
 
 describe("web media loading", () => {
+  beforeEach(() => {
+    vi.spyOn(ssrf, "resolvePinnedHostname").mockImplementation(async (hostname) => {
+      const normalized = hostname.trim().toLowerCase().replace(/\.$/, "");
+      const addresses = ["93.184.216.34"];
+      return {
+        hostname: normalized,
+        addresses,
+        lookup: ssrf.createPinnedLookup({ hostname: normalized, addresses }),
+      };
+    });
+  });
+
   it("compresses large local images under the provided cap", async () => {
     const buffer = await sharp({
       create: {
@@ -27,9 +60,7 @@ describe("web media loading", () => {
       .jpeg({ quality: 95 })
       .toBuffer();
 
-    const file = path.join(os.tmpdir(), `clawdbot-media-${Date.now()}.jpg`);
-    tmpFiles.push(file);
-    await fs.writeFile(file, buffer);
+    const file = await writeTempFile(buffer, ".jpg");
 
     const cap = Math.floor(buffer.length * 0.8);
     const result = await loadWebMedia(file, cap);
@@ -45,9 +76,7 @@ describe("web media loading", () => {
     })
       .png()
       .toBuffer();
-    const wrongExt = path.join(os.tmpdir(), `clawdbot-media-${Date.now()}.bin`);
-    tmpFiles.push(wrongExt);
-    await fs.writeFile(wrongExt, pngBuffer);
+    const wrongExt = await writeTempFile(pngBuffer, ".bin");
 
     const result = await loadWebMedia(wrongExt, 1024 * 1024);
 
@@ -91,6 +120,22 @@ describe("web media loading", () => {
     fetchMock.mockRestore();
   });
 
+  it("respects maxBytes for raw URL fetches", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      body: true,
+      arrayBuffer: async () => Buffer.alloc(2048).buffer,
+      headers: { get: () => "image/png" },
+      status: 200,
+    } as Response);
+
+    await expect(loadWebMediaRaw("https://example.com/too-big.png", 1024)).rejects.toThrow(
+      /exceeds maxBytes 1024/i,
+    );
+
+    fetchMock.mockRestore();
+  });
+
   it("uses content-disposition filename when available", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
@@ -101,7 +146,9 @@ describe("web media loading", () => {
           if (name === "content-disposition") {
             return 'attachment; filename="report.pdf"';
           }
-          if (name === "content-type") return "application/pdf";
+          if (name === "content-type") {
+            return "application/pdf";
+          }
           return null;
         },
       },
@@ -150,9 +197,7 @@ describe("web media loading", () => {
       0x3b, // minimal LZW data + trailer
     ]);
 
-    const file = path.join(os.tmpdir(), `clawdbot-media-${Date.now()}.gif`);
-    tmpFiles.push(file);
-    await fs.writeFile(file, gifBuffer);
+    const file = await writeTempFile(gifBuffer, ".gif");
 
     const result = await loadWebMedia(file, 1024 * 1024);
 
@@ -184,5 +229,66 @@ describe("web media loading", () => {
     expect(result.buffer.slice(0, 3).toString()).toBe("GIF");
 
     fetchMock.mockRestore();
+  });
+
+  it("preserves PNG alpha when under the cap", async () => {
+    const buffer = await sharp({
+      create: {
+        width: 64,
+        height: 64,
+        channels: 4,
+        background: { r: 255, g: 0, b: 0, alpha: 0.5 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+    const file = await writeTempFile(buffer, ".png");
+
+    const result = await loadWebMedia(file, 1024 * 1024);
+
+    expect(result.kind).toBe("image");
+    expect(result.contentType).toBe("image/png");
+    const meta = await sharp(result.buffer).metadata();
+    expect(meta.hasAlpha).toBe(true);
+  });
+
+  it("falls back to JPEG when PNG alpha cannot fit under cap", async () => {
+    const sizes = [512, 768, 1024];
+    let pngBuffer: Buffer | null = null;
+    let smallestPng: Awaited<ReturnType<typeof optimizeImageToPng>> | null = null;
+    let jpegOptimized: Awaited<ReturnType<typeof optimizeImageToJpeg>> | null = null;
+    let cap = 0;
+
+    for (const size of sizes) {
+      const raw = buildDeterministicBytes(size * size * 4);
+      pngBuffer = await sharp(raw, { raw: { width: size, height: size, channels: 4 } })
+        .png()
+        .toBuffer();
+      smallestPng = await optimizeImageToPng(pngBuffer, 1);
+      cap = Math.max(1, smallestPng.optimizedSize - 1);
+      jpegOptimized = await optimizeImageToJpeg(pngBuffer, cap);
+      if (jpegOptimized.buffer.length < smallestPng.optimizedSize) {
+        break;
+      }
+    }
+
+    if (!pngBuffer || !smallestPng || !jpegOptimized) {
+      throw new Error("PNG fallback setup failed");
+    }
+
+    if (jpegOptimized.buffer.length >= smallestPng.optimizedSize) {
+      throw new Error(
+        `JPEG fallback did not shrink below PNG (jpeg=${jpegOptimized.buffer.length}, png=${smallestPng.optimizedSize})`,
+      );
+    }
+
+    const file = await writeTempFile(pngBuffer, ".png");
+
+    const result = await loadWebMedia(file, cap);
+
+    expect(result.kind).toBe("image");
+    expect(result.contentType).toBe("image/jpeg");
+    expect(result.buffer.length).toBeLessThanOrEqual(cap);
   });
 });

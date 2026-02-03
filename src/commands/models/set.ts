@@ -1,5 +1,5 @@
-import { CONFIG_PATH_CLAWDBOT } from "../../config/config.js";
 import type { RuntimeEnv } from "../../runtime.js";
+import { logConfigUpdated } from "../../config/logging.js";
 import { resolveModelTarget, updateConfig } from "./shared.js";
 
 export async function modelsSetCommand(modelRaw: string, runtime: RuntimeEnv) {
@@ -7,7 +7,9 @@ export async function modelsSetCommand(modelRaw: string, runtime: RuntimeEnv) {
     const resolved = resolveModelTarget({ raw: modelRaw, cfg });
     const key = `${resolved.provider}/${resolved.model}`;
     const nextModels = { ...cfg.agents?.defaults?.models };
-    if (!nextModels[key]) nextModels[key] = {};
+    if (!nextModels[key]) {
+      nextModels[key] = {};
+    }
     const existingModel = cfg.agents?.defaults?.model as
       | { primary?: string; fallbacks?: string[] }
       | undefined;
@@ -27,6 +29,6 @@ export async function modelsSetCommand(modelRaw: string, runtime: RuntimeEnv) {
     };
   });
 
-  runtime.log(`Updated ${CONFIG_PATH_CLAWDBOT}`);
+  logConfigUpdated(runtime);
   runtime.log(`Default model: ${updated.agents?.defaults?.model?.primary ?? modelRaw}`);
 }

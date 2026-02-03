@@ -4,10 +4,9 @@ description: Capture frames or clips from RTSP/ONVIF cameras.
 homepage: https://camsnap.ai
 metadata:
   {
-    "clawdbot":
+    "openclaw":
       {
         "emoji": "📸",
-        "os": ["darwin"],
         "requires": { "bins": ["camsnap"] },
         "install":
           [

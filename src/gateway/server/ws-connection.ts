@@ -1,20 +1,18 @@
-import { randomUUID } from "node:crypto";
-
 import type { WebSocket, WebSocketServer } from "ws";
+import { randomUUID } from "node:crypto";
+import type { createSubsystemLogger } from "../../logging/subsystem.js";
+import type { ResolvedGatewayAuth } from "../auth.js";
+import type { GatewayRequestContext, GatewayRequestHandlers } from "../server-methods/types.js";
+import type { GatewayWsClient } from "./ws-types.js";
 import { resolveCanvasHostUrl } from "../../infra/canvas-host-url.js";
 import { listSystemPresence, upsertPresence } from "../../infra/system-presence.js";
-import type { createSubsystemLogger } from "../../logging/subsystem.js";
 import { isWebchatClient } from "../../utils/message-channel.js";
-
-import type { ResolvedGatewayAuth } from "../auth.js";
 import { isLoopbackAddress } from "../net.js";
-import { HANDSHAKE_TIMEOUT_MS } from "../server-constants.js";
-import type { GatewayRequestContext, GatewayRequestHandlers } from "../server-methods/types.js";
+import { getHandshakeTimeoutMs } from "../server-constants.js";
 import { formatError } from "../server-utils.js";
 import { logWs } from "../ws-log.js";
 import { getHealthVersion, getPresenceVersion, incrementPresenceVersion } from "./health-state.js";
 import { attachGatewayWsMessageHandler } from "./ws-connection/message-handler.js";
-import type { GatewayWsClient } from "./ws-types.js";
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
@@ -73,6 +71,7 @@ export function attachGatewayWsConnectionHandler(params: {
     const requestOrigin = headerValue(upgradeReq.headers.origin);
     const requestUserAgent = headerValue(upgradeReq.headers["user-agent"]);
     const forwardedFor = headerValue(upgradeReq.headers["x-forwarded-for"]);
+    const realIp = headerValue(upgradeReq.headers["x-real-ip"]);
 
     const canvasHostPortForWs = canvasHostServerPort ?? (canvasHostEnabled ? port : undefined);
     const canvasHostOverride =
@@ -94,7 +93,9 @@ export function attachGatewayWsConnectionHandler(params: {
     let lastFrameId: string | undefined;
 
     const setCloseCause = (cause: string, meta?: Record<string, unknown>) => {
-      if (!closeCause) closeCause = cause;
+      if (!closeCause) {
+        closeCause = cause;
+      }
       if (meta && Object.keys(meta).length > 0) {
         closeMeta = { ...closeMeta, ...meta };
       }
@@ -124,10 +125,14 @@ export function attachGatewayWsConnectionHandler(params: {
     });
 
     const close = (code = 1000, reason?: string) => {
-      if (closed) return;
+      if (closed) {
+        return;
+      }
       closed = true;
       clearTimeout(handshakeTimer);
-      if (client) clients.delete(client);
+      if (client) {
+        clients.delete(client);
+      }
       try {
         socket.close(code, reason);
       } catch {
@@ -210,6 +215,7 @@ export function attachGatewayWsConnectionHandler(params: {
       close();
     });
 
+    const handshakeTimeoutMs = getHandshakeTimeoutMs();
     const handshakeTimer = setTimeout(() => {
       if (!client) {
         handshakeState = "failed";
@@ -219,7 +225,7 @@ export function attachGatewayWsConnectionHandler(params: {
         logWsControl.warn(`handshake timeout conn=${connId} remote=${remoteAddr ?? "?"}`);
         close();
       }
-    }, HANDSHAKE_TIMEOUT_MS);
+    }, handshakeTimeoutMs);
 
     attachGatewayWsMessageHandler({
       socket,
@@ -227,6 +233,7 @@ export function attachGatewayWsConnectionHandler(params: {
       connId,
       remoteAddr,
       forwardedFor,
+      realIp,
       requestHost,
       requestOrigin,
       requestUserAgent,

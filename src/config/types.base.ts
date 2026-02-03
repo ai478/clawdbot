@@ -3,7 +3,7 @@ import type { NormalizedChatType } from "../channels/chat-type.js";
 export type ReplyMode = "text" | "command";
 export type TypingMode = "never" | "instant" | "thinking" | "message";
 export type SessionScope = "per-sender" | "global";
-export type DmScope = "main" | "per-peer" | "per-channel-peer";
+export type DmScope = "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
 export type ReplyToMode = "off" | "first" | "all";
 export type GroupPolicy = "open" | "disabled" | "allowlist";
 export type DmPolicy = "pairing" | "allowlist" | "open" | "disabled";
@@ -29,6 +29,13 @@ export type BlockStreamingChunkConfig = {
   minChars?: number;
   maxChars?: number;
   breakPreference?: "paragraph" | "newline" | "sentence";
+};
+
+export type MarkdownTableMode = "off" | "bullets" | "code";
+
+export type MarkdownConfig = {
+  /** Table rendering mode (off|bullets|code). */
+  tables?: MarkdownTableMode;
 };
 
 export type HumanDelayConfig = {
@@ -77,9 +84,10 @@ export type SessionConfig = {
   identityLinks?: Record<string, string[]>;
   resetTriggers?: string[];
   idleMinutes?: number;
-  heartbeatIdleMinutes?: number;
   reset?: SessionResetConfig;
   resetByType?: SessionResetByTypeConfig;
+  /** Channel-specific reset overrides (e.g. { discord: { mode: "idle", idleMinutes: 10080 } }). */
+  resetByChannel?: Record<string, SessionResetConfig>;
   store?: string;
   typingIntervalSeconds?: number;
   typingMode?: TypingMode;
@@ -117,9 +125,20 @@ export type DiagnosticsOtelConfig = {
   flushIntervalMs?: number;
 };
 
+export type DiagnosticsCacheTraceConfig = {
+  enabled?: boolean;
+  filePath?: string;
+  includeMessages?: boolean;
+  includePrompt?: boolean;
+  includeSystem?: boolean;
+};
+
 export type DiagnosticsConfig = {
   enabled?: boolean;
+  /** Optional ad-hoc diagnostics flags (e.g. "telegram.http"). */
+  flags?: string[];
   otel?: DiagnosticsOtelConfig;
+  cacheTrace?: DiagnosticsCacheTraceConfig;
 };
 
 export type WebReconnectConfig = {
@@ -144,4 +163,6 @@ export type IdentityConfig = {
   name?: string;
   theme?: string;
   emoji?: string;
+  /** Avatar image: workspace-relative path, http(s) URL, or data URI. */
+  avatar?: string;
 };

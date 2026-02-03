@@ -181,11 +181,54 @@ describe("gateway-status command", () => {
 
     expect(startSshPortForward).toHaveBeenCalledTimes(1);
     expect(probeGateway).toHaveBeenCalled();
+    const tunnelCall = probeGateway.mock.calls.find(
+      (call) => typeof call?.[0]?.url === "string" && call[0].url.startsWith("ws://127.0.0.1:"),
+    )?.[0] as { auth?: { token?: string } } | undefined;
+    expect(tunnelCall?.auth?.token).toBe("rtok");
     expect(sshStop).toHaveBeenCalledTimes(1);
 
     const parsed = JSON.parse(runtimeLogs.join("\n")) as Record<string, unknown>;
     const targets = parsed.targets as Array<Record<string, unknown>>;
     expect(targets.some((t) => t.kind === "sshTunnel")).toBe(true);
+  });
+
+  it("skips invalid ssh-auto discovery targets", async () => {
+    const runtimeLogs: string[] = [];
+    const runtime = {
+      log: (msg: string) => runtimeLogs.push(msg),
+      error: (_msg: string) => {},
+      exit: (code: number) => {
+        throw new Error(`__exit__:${code}`);
+      },
+    };
+
+    const originalUser = process.env.USER;
+    try {
+      process.env.USER = "steipete";
+      loadConfig.mockReturnValueOnce({
+        gateway: {
+          mode: "remote",
+          remote: {},
+        },
+      });
+      discoverGatewayBeacons.mockResolvedValueOnce([
+        { tailnetDns: "-V" },
+        { tailnetDns: "goodhost" },
+      ]);
+
+      startSshPortForward.mockClear();
+      const { gatewayStatusCommand } = await import("./gateway-status.js");
+      await gatewayStatusCommand(
+        { timeout: "1000", json: true, sshAuto: true },
+        runtime as unknown as import("../runtime.js").RuntimeEnv,
+      );
+
+      expect(startSshPortForward).toHaveBeenCalledTimes(1);
+      const call = startSshPortForward.mock.calls[0]?.[0] as { target: string };
+      expect(call.target).toBe("steipete@goodhost");
+    } finally {
+      process.env.USER = originalUser;
+    }
   });
 
   it("infers SSH target from gateway.remote.url and ssh config", async () => {

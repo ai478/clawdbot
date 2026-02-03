@@ -1,55 +1,25 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { SessionManager } from "@mariozechner/pi-coding-agent";
-
-import { makeMissingToolResult } from "./session-transcript-repair.js";
 import { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
+import { makeMissingToolResult, sanitizeToolCallInputs } from "./session-transcript-repair.js";
 
 type ToolCall = { id: string; name?: string };
 
-const FINAL_TAG_RE = /<\s*\/?\s*final\s*>/gi;
-
-function stripFinalTagsFromText(text: string): string {
-  if (!text) return text;
-  return text.replace(FINAL_TAG_RE, "");
-}
-
-function stripFinalTagsFromAssistant(message: Extract<AgentMessage, { role: "assistant" }>) {
-  const content = message.content;
-  if (typeof content === "string") {
-    const cleaned = stripFinalTagsFromText(content);
-    return cleaned === content
-      ? message
-      : ({ ...message, content: cleaned } as unknown as AgentMessage);
-  }
-  if (!Array.isArray(content)) return message;
-
-  let changed = false;
-  const next = content.map((block) => {
-    if (!block || typeof block !== "object") return block;
-    const record = block as { type?: unknown; text?: unknown };
-    if (record.type === "text" && typeof record.text === "string") {
-      const cleaned = stripFinalTagsFromText(record.text);
-      if (cleaned !== record.text) {
-        changed = true;
-        return { ...record, text: cleaned };
-      }
-    }
-    return block;
-  });
-
-  if (!changed) return message;
-  return { ...message, content: next } as AgentMessage;
-}
-
 function extractAssistantToolCalls(msg: Extract<AgentMessage, { role: "assistant" }>): ToolCall[] {
   const content = msg.content;
-  if (!Array.isArray(content)) return [];
+  if (!Array.isArray(content)) {
+    return [];
+  }
 
   const toolCalls: ToolCall[] = [];
   for (const block of content) {
-    if (!block || typeof block !== "object") continue;
+    if (!block || typeof block !== "object") {
+      continue;
+    }
     const rec = block as { type?: unknown; id?: unknown; name?: unknown };
-    if (typeof rec.id !== "string" || !rec.id) continue;
+    if (typeof rec.id !== "string" || !rec.id) {
+      continue;
+    }
     if (rec.type === "toolCall" || rec.type === "toolUse" || rec.type === "functionCall") {
       toolCalls.push({
         id: rec.id,
@@ -62,9 +32,13 @@ function extractAssistantToolCalls(msg: Extract<AgentMessage, { role: "assistant
 
 function extractToolResultId(msg: Extract<AgentMessage, { role: "toolResult" }>): string | null {
   const toolCallId = (msg as { toolCallId?: unknown }).toolCallId;
-  if (typeof toolCallId === "string" && toolCallId) return toolCallId;
+  if (typeof toolCallId === "string" && toolCallId) {
+    return toolCallId;
+  }
   const toolUseId = (msg as { toolUseId?: unknown }).toolUseId;
-  if (typeof toolUseId === "string" && toolUseId) return toolUseId;
+  if (typeof toolUseId === "string" && toolUseId) {
+    return toolUseId;
+  }
   return null;
 }
 
@@ -79,6 +53,11 @@ export function installSessionToolResultGuard(
       message: AgentMessage,
       meta: { toolCallId?: string; toolName?: string; isSynthetic?: boolean },
     ) => AgentMessage;
+    /**
+     * Whether to synthesize missing tool results to satisfy strict providers.
+     * Defaults to true.
+     */
+    allowSyntheticToolResults?: boolean;
   },
 ): {
   flushPendingToolResults: () => void;
@@ -95,30 +74,50 @@ export function installSessionToolResultGuard(
     return transformer ? transformer(message, meta) : message;
   };
 
+  const allowSyntheticToolResults = opts?.allowSyntheticToolResults ?? true;
+
   const flushPendingToolResults = () => {
-    if (pending.size === 0) return;
-    for (const [id, name] of pending.entries()) {
-      const synthetic = makeMissingToolResult({ toolCallId: id, toolName: name });
-      originalAppend(
-        persistToolResult(synthetic, {
-          toolCallId: id,
-          toolName: name,
-          isSynthetic: true,
-        }) as never,
-      );
+    if (pending.size === 0) {
+      return;
+    }
+    if (allowSyntheticToolResults) {
+      for (const [id, name] of pending.entries()) {
+        const synthetic = makeMissingToolResult({ toolCallId: id, toolName: name });
+        originalAppend(
+          persistToolResult(synthetic, {
+            toolCallId: id,
+            toolName: name,
+            isSynthetic: true,
+          }) as never,
+        );
+      }
     }
     pending.clear();
   };
 
   const guardedAppend = (message: AgentMessage) => {
+    let nextMessage = message;
     const role = (message as { role?: unknown }).role;
+    if (role === "assistant") {
+      const sanitized = sanitizeToolCallInputs([message]);
+      if (sanitized.length === 0) {
+        if (allowSyntheticToolResults && pending.size > 0) {
+          flushPendingToolResults();
+        }
+        return undefined;
+      }
+      nextMessage = sanitized[0];
+    }
+    const nextRole = (nextMessage as { role?: unknown }).role;
 
-    if (role === "toolResult") {
-      const id = extractToolResultId(message as Extract<AgentMessage, { role: "toolResult" }>);
+    if (nextRole === "toolResult") {
+      const id = extractToolResultId(nextMessage as Extract<AgentMessage, { role: "toolResult" }>);
       const toolName = id ? pending.get(id) : undefined;
-      if (id) pending.delete(id);
+      if (id) {
+        pending.delete(id);
+      }
       return originalAppend(
-        persistToolResult(message, {
+        persistToolResult(nextMessage, {
           toolCallId: id ?? undefined,
           toolName,
           isSynthetic: false,
@@ -126,25 +125,23 @@ export function installSessionToolResultGuard(
       );
     }
 
-    const sanitized =
-      role === "assistant"
-        ? stripFinalTagsFromAssistant(message as Extract<AgentMessage, { role: "assistant" }>)
-        : message;
     const toolCalls =
-      role === "assistant"
-        ? extractAssistantToolCalls(sanitized as Extract<AgentMessage, { role: "assistant" }>)
+      nextRole === "assistant"
+        ? extractAssistantToolCalls(nextMessage as Extract<AgentMessage, { role: "assistant" }>)
         : [];
 
-    // If previous tool calls are still pending, flush before non-tool results.
-    if (pending.size > 0 && (toolCalls.length === 0 || role !== "assistant")) {
-      flushPendingToolResults();
-    }
-    // If new tool calls arrive while older ones are pending, flush the old ones first.
-    if (pending.size > 0 && toolCalls.length > 0) {
-      flushPendingToolResults();
+    if (allowSyntheticToolResults) {
+      // If previous tool calls are still pending, flush before non-tool results.
+      if (pending.size > 0 && (toolCalls.length === 0 || nextRole !== "assistant")) {
+        flushPendingToolResults();
+      }
+      // If new tool calls arrive while older ones are pending, flush the old ones first.
+      if (pending.size > 0 && toolCalls.length > 0) {
+        flushPendingToolResults();
+      }
     }
 
-    const result = originalAppend(sanitized as never);
+    const result = originalAppend(nextMessage as never);
 
     const sessionFile = (
       sessionManager as { getSessionFile?: () => string | null }

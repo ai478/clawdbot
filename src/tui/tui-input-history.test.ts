@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-
 import { createEditorSubmitHandler } from "./tui.js";
 
 describe("createEditorSubmitHandler", () => {
@@ -13,6 +12,7 @@ describe("createEditorSubmitHandler", () => {
       editor,
       handleCommand: vi.fn(),
       sendMessage: vi.fn(),
+      handleBangLine: vi.fn(),
     });
 
     handler("hello world");
@@ -31,6 +31,7 @@ describe("createEditorSubmitHandler", () => {
       editor,
       handleCommand: vi.fn(),
       sendMessage: vi.fn(),
+      handleBangLine: vi.fn(),
     });
 
     handler("   hi   ");
@@ -38,7 +39,7 @@ describe("createEditorSubmitHandler", () => {
     expect(editor.addToHistory).toHaveBeenCalledWith("hi");
   });
 
-  it("does not add empty submissions to history", () => {
+  it("does not add empty-string submissions to history", () => {
     const editor = {
       setText: vi.fn(),
       addToHistory: vi.fn(),
@@ -48,6 +49,25 @@ describe("createEditorSubmitHandler", () => {
       editor,
       handleCommand: vi.fn(),
       sendMessage: vi.fn(),
+      handleBangLine: vi.fn(),
+    });
+
+    handler("");
+
+    expect(editor.addToHistory).not.toHaveBeenCalled();
+  });
+
+  it("does not add whitespace-only submissions to history", () => {
+    const editor = {
+      setText: vi.fn(),
+      addToHistory: vi.fn(),
+    };
+
+    const handler = createEditorSubmitHandler({
+      editor,
+      handleCommand: vi.fn(),
+      sendMessage: vi.fn(),
+      handleBangLine: vi.fn(),
     });
 
     handler("   ");
@@ -67,6 +87,7 @@ describe("createEditorSubmitHandler", () => {
       editor,
       handleCommand,
       sendMessage,
+      handleBangLine: vi.fn(),
     });
 
     handler("/models");
@@ -88,6 +109,7 @@ describe("createEditorSubmitHandler", () => {
       editor,
       handleCommand,
       sendMessage,
+      handleBangLine: vi.fn(),
     });
 
     handler("hello");
@@ -95,5 +117,43 @@ describe("createEditorSubmitHandler", () => {
     expect(editor.addToHistory).toHaveBeenCalledWith("hello");
     expect(sendMessage).toHaveBeenCalledWith("hello");
     expect(handleCommand).not.toHaveBeenCalled();
+  });
+
+  it("routes bang-prefixed lines to handleBangLine", () => {
+    const editor = {
+      setText: vi.fn(),
+      addToHistory: vi.fn(),
+    };
+    const handleBangLine = vi.fn();
+
+    const handler = createEditorSubmitHandler({
+      editor,
+      handleCommand: vi.fn(),
+      sendMessage: vi.fn(),
+      handleBangLine,
+    });
+
+    handler("!ls");
+
+    expect(handleBangLine).toHaveBeenCalledWith("!ls");
+  });
+
+  it("treats a lone ! as a normal message", () => {
+    const editor = {
+      setText: vi.fn(),
+      addToHistory: vi.fn(),
+    };
+    const sendMessage = vi.fn();
+
+    const handler = createEditorSubmitHandler({
+      editor,
+      handleCommand: vi.fn(),
+      sendMessage,
+      handleBangLine: vi.fn(),
+    });
+
+    handler("!");
+
+    expect(sendMessage).toHaveBeenCalledWith("!");
   });
 });

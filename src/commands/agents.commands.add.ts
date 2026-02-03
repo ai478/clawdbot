@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-
+import type { RuntimeEnv } from "../runtime.js";
+import type { ChannelChoice } from "./onboard-types.js";
 import {
   resolveAgentDir,
   resolveAgentWorkspaceDir,
@@ -8,11 +9,11 @@ import {
 } from "../agents/agent-scope.js";
 import { ensureAuthProfileStore } from "../agents/auth-profiles.js";
 import { resolveAuthStorePath } from "../agents/auth-profiles/paths.js";
-import { CONFIG_PATH_CLAWDBOT, writeConfigFile } from "../config/config.js";
+import { writeConfigFile } from "../config/config.js";
+import { logConfigUpdated } from "../config/logging.js";
 import { DEFAULT_AGENT_ID, normalizeAgentId } from "../routing/session-key.js";
-import type { RuntimeEnv } from "../runtime.js";
 import { defaultRuntime } from "../runtime.js";
-import { resolveUserPath } from "../utils.js";
+import { resolveUserPath, shortenHomePath } from "../utils.js";
 import { createClackPrompter } from "../wizard/clack-prompter.js";
 import { WizardCancelledError } from "../wizard/prompts.js";
 import {
@@ -23,11 +24,10 @@ import {
 } from "./agents.bindings.js";
 import { createQuietRuntime, requireValidConfig } from "./agents.command-shared.js";
 import { applyAgentConfig, findAgentEntryIndex, listAgentEntries } from "./agents.config.js";
-import { applyAuthChoice, warnIfModelConfigLooksOff } from "./auth-choice.js";
 import { promptAuthChoiceGrouped } from "./auth-choice-prompt.js";
+import { applyAuthChoice, warnIfModelConfigLooksOff } from "./auth-choice.js";
 import { setupChannels } from "./onboard-channels.js";
 import { ensureWorkspaceAndSessions } from "./onboard-helpers.js";
-import type { ChannelChoice } from "./onboard-types.js";
 
 type AgentsAddOptions = {
   name?: string;
@@ -54,7 +54,9 @@ export async function agentsAddCommand(
   params?: { hasFlags?: boolean },
 ) {
   const cfg = await requireValidConfig(runtime);
-  if (!cfg) return;
+  if (!cfg) {
+    return;
+  }
 
   const workspaceFlag = opts.workspace?.trim();
   const nameInput = opts.name?.trim();
@@ -126,7 +128,9 @@ export async function agentsAddCommand(
         : { config: nextConfig, added: [], skipped: [], conflicts: [] };
 
     await writeConfigFile(bindingResult.config);
-    if (!opts.json) runtime.log(`Updated ${CONFIG_PATH_CLAWDBOT}`);
+    if (!opts.json) {
+      logConfigUpdated(runtime);
+    }
     const quietRuntime = opts.json ? createQuietRuntime(runtime) : runtime;
     await ensureWorkspaceAndSessions(workspaceDir, quietRuntime, {
       skipBootstrap: Boolean(bindingResult.config.agents?.defaults?.skipBootstrap),
@@ -151,9 +155,11 @@ export async function agentsAddCommand(
       runtime.log(JSON.stringify(payload, null, 2));
     } else {
       runtime.log(`Agent: ${agentId}`);
-      runtime.log(`Workspace: ${workspaceDir}`);
-      runtime.log(`Agent dir: ${agentDir}`);
-      if (model) runtime.log(`Model: ${model}`);
+      runtime.log(`Workspace: ${shortenHomePath(workspaceDir)}`);
+      runtime.log(`Agent dir: ${shortenHomePath(agentDir)}`);
+      if (model) {
+        runtime.log(`Model: ${model}`);
+      }
       if (bindingResult.conflicts.length > 0) {
         runtime.error(
           [
@@ -171,13 +177,15 @@ export async function agentsAddCommand(
 
   const prompter = createClackPrompter();
   try {
-    await prompter.intro("Add Clawdbot agent");
+    await prompter.intro("Add OpenClaw agent");
     const name =
       nameInput ??
       (await prompter.text({
         message: "Agent name",
         validate: (value) => {
-          if (!value?.trim()) return "Required";
+          if (!value?.trim()) {
+            return "Required";
+          }
           const normalized = normalizeAgentId(value);
           if (normalized === DEFAULT_AGENT_ID) {
             return `"${DEFAULT_AGENT_ID}" is reserved. Choose another name.`;
@@ -257,7 +265,6 @@ export async function agentsAddCommand(
         prompter,
         store: authStore,
         includeSkip: true,
-        includeClaudeCliIfMissing: true,
       });
 
       const authResult = await applyAuthChoice({
@@ -326,7 +333,7 @@ export async function agentsAddCommand(
         await prompter.note(
           [
             "Routing unchanged. Add bindings when you're ready.",
-            "Docs: https://docs.clawd.bot/concepts/multi-agent",
+            "Docs: https://docs.openclaw.ai/concepts/multi-agent",
           ].join("\n"),
           "Routing",
         );
@@ -334,7 +341,7 @@ export async function agentsAddCommand(
     }
 
     await writeConfigFile(nextConfig);
-    runtime.log(`Updated ${CONFIG_PATH_CLAWDBOT}`);
+    logConfigUpdated(runtime);
     await ensureWorkspaceAndSessions(workspaceDir, runtime, {
       skipBootstrap: Boolean(nextConfig.agents?.defaults?.skipBootstrap),
       agentId,

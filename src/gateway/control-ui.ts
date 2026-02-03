@@ -1,23 +1,23 @@
-import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { OpenClawConfig } from "../config/config.js";
+import { DEFAULT_ASSISTANT_IDENTITY, resolveAssistantIdentity } from "./assistant-identity.js";
+import {
+  buildControlUiAvatarUrl,
+  CONTROL_UI_AVATAR_PREFIX,
+  normalizeControlUiBasePath,
+  resolveAssistantAvatarUrl,
+} from "./control-ui-shared.js";
 
 const ROOT_PREFIX = "/";
 
 export type ControlUiRequestOptions = {
   basePath?: string;
+  config?: OpenClawConfig;
+  agentId?: string;
 };
-
-export function normalizeControlUiBasePath(basePath?: string): string {
-  if (!basePath) return "";
-  let normalized = basePath.trim();
-  if (!normalized) return "";
-  if (!normalized.startsWith("/")) normalized = `/${normalized}`;
-  if (normalized === "/") return "";
-  if (normalized.endsWith("/")) normalized = normalized.slice(0, -1);
-  return normalized;
-}
 
 function resolveControlUiRoot(): string | null {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,7 +39,9 @@ function resolveControlUiRoot(): string | null {
     path.resolve(process.cwd(), "dist", "control-ui"),
   ].filter((dir): dir is string => Boolean(dir));
   for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, "index.html"))) return dir;
+    if (fs.existsSync(path.join(dir, "index.html"))) {
+      return dir;
+    }
   }
   return null;
 }
@@ -62,6 +64,10 @@ function contentTypeForExt(ext: string): string {
     case ".jpg":
     case ".jpeg":
       return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
     case ".ico":
       return "image/x-icon";
     case ".txt":
@@ -69,6 +75,87 @@ function contentTypeForExt(ext: string): string {
     default:
       return "application/octet-stream";
   }
+}
+
+export type ControlUiAvatarResolution =
+  | { kind: "none"; reason: string }
+  | { kind: "local"; filePath: string }
+  | { kind: "remote"; url: string }
+  | { kind: "data"; url: string };
+
+type ControlUiAvatarMeta = {
+  avatarUrl: string | null;
+};
+
+function sendJson(res: ServerResponse, status: number, body: unknown) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.end(JSON.stringify(body));
+}
+
+function isValidAgentId(agentId: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(agentId);
+}
+
+export function handleControlUiAvatarRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: { basePath?: string; resolveAvatar: (agentId: string) => ControlUiAvatarResolution },
+): boolean {
+  const urlRaw = req.url;
+  if (!urlRaw) {
+    return false;
+  }
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return false;
+  }
+
+  const url = new URL(urlRaw, "http://localhost");
+  const basePath = normalizeControlUiBasePath(opts.basePath);
+  const pathname = url.pathname;
+  const pathWithBase = basePath
+    ? `${basePath}${CONTROL_UI_AVATAR_PREFIX}/`
+    : `${CONTROL_UI_AVATAR_PREFIX}/`;
+  if (!pathname.startsWith(pathWithBase)) {
+    return false;
+  }
+
+  const agentIdParts = pathname.slice(pathWithBase.length).split("/").filter(Boolean);
+  const agentId = agentIdParts[0] ?? "";
+  if (agentIdParts.length !== 1 || !agentId || !isValidAgentId(agentId)) {
+    respondNotFound(res);
+    return true;
+  }
+
+  if (url.searchParams.get("meta") === "1") {
+    const resolved = opts.resolveAvatar(agentId);
+    const avatarUrl =
+      resolved.kind === "local"
+        ? buildControlUiAvatarUrl(basePath, agentId)
+        : resolved.kind === "remote" || resolved.kind === "data"
+          ? resolved.url
+          : null;
+    sendJson(res, 200, { avatarUrl } satisfies ControlUiAvatarMeta);
+    return true;
+  }
+
+  const resolved = opts.resolveAvatar(agentId);
+  if (resolved.kind !== "local") {
+    respondNotFound(res);
+    return true;
+  }
+
+  if (req.method === "HEAD") {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", contentTypeForExt(path.extname(resolved.filePath).toLowerCase()));
+    res.setHeader("Cache-Control", "no-cache");
+    res.end();
+    return true;
+  }
+
+  serveFile(res, resolved.filePath);
+  return true;
 }
 
 function respondNotFound(res: ServerResponse) {
@@ -86,11 +173,28 @@ function serveFile(res: ServerResponse, filePath: string) {
   res.end(fs.readFileSync(filePath));
 }
 
-function injectControlUiBasePath(html: string, basePath: string): string {
-  const script = `<script>window.__CLAWDBOT_CONTROL_UI_BASE_PATH__=${JSON.stringify(
-    basePath,
-  )};</script>`;
-  if (html.includes("__CLAWDBOT_CONTROL_UI_BASE_PATH__")) return html;
+interface ControlUiInjectionOpts {
+  basePath: string;
+  assistantName?: string;
+  assistantAvatar?: string;
+}
+
+function injectControlUiConfig(html: string, opts: ControlUiInjectionOpts): string {
+  const { basePath, assistantName, assistantAvatar } = opts;
+  const script =
+    `<script>` +
+    `window.__OPENCLAW_CONTROL_UI_BASE_PATH__=${JSON.stringify(basePath)};` +
+    `window.__OPENCLAW_ASSISTANT_NAME__=${JSON.stringify(
+      assistantName ?? DEFAULT_ASSISTANT_IDENTITY.name,
+    )};` +
+    `window.__OPENCLAW_ASSISTANT_AVATAR__=${JSON.stringify(
+      assistantAvatar ?? DEFAULT_ASSISTANT_IDENTITY.avatar,
+    )};` +
+    `</script>`;
+  // Check if already injected
+  if (html.includes("__OPENCLAW_ASSISTANT_NAME__")) {
+    return html;
+  }
   const headClose = html.indexOf("</head>");
   if (headClose !== -1) {
     return `${html.slice(0, headClose)}${script}${html.slice(headClose)}`;
@@ -98,18 +202,50 @@ function injectControlUiBasePath(html: string, basePath: string): string {
   return `${script}${html}`;
 }
 
-function serveIndexHtml(res: ServerResponse, indexPath: string, basePath: string) {
+interface ServeIndexHtmlOpts {
+  basePath: string;
+  config?: OpenClawConfig;
+  agentId?: string;
+}
+
+function serveIndexHtml(res: ServerResponse, indexPath: string, opts: ServeIndexHtmlOpts) {
+  const { basePath, config, agentId } = opts;
+  const identity = config
+    ? resolveAssistantIdentity({ cfg: config, agentId })
+    : DEFAULT_ASSISTANT_IDENTITY;
+  const resolvedAgentId =
+    typeof (identity as { agentId?: string }).agentId === "string"
+      ? (identity as { agentId?: string }).agentId
+      : agentId;
+  const avatarValue =
+    resolveAssistantAvatarUrl({
+      avatar: identity.avatar,
+      agentId: resolvedAgentId,
+      basePath,
+    }) ?? identity.avatar;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
   const raw = fs.readFileSync(indexPath, "utf8");
-  res.end(injectControlUiBasePath(raw, basePath));
+  res.end(
+    injectControlUiConfig(raw, {
+      basePath,
+      assistantName: identity.name,
+      assistantAvatar: avatarValue,
+    }),
+  );
 }
 
 function isSafeRelativePath(relPath: string) {
-  if (!relPath) return false;
+  if (!relPath) {
+    return false;
+  }
   const normalized = path.posix.normalize(relPath);
-  if (normalized.startsWith("../") || normalized === "..") return false;
-  if (normalized.includes("\0")) return false;
+  if (normalized.startsWith("../") || normalized === "..") {
+    return false;
+  }
+  if (normalized.includes("\0")) {
+    return false;
+  }
   return true;
 }
 
@@ -119,7 +255,9 @@ export function handleControlUiHttpRequest(
   opts?: ControlUiRequestOptions,
 ): boolean {
   const urlRaw = req.url;
-  if (!urlRaw) return false;
+  if (!urlRaw) {
+    return false;
+  }
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.statusCode = 405;
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -145,7 +283,9 @@ export function handleControlUiHttpRequest(
       res.end();
       return true;
     }
-    if (!pathname.startsWith(`${basePath}/`)) return false;
+    if (!pathname.startsWith(`${basePath}/`)) {
+      return false;
+    }
   }
 
   const root = resolveControlUiRoot();
@@ -161,9 +301,13 @@ export function handleControlUiHttpRequest(
   const uiPath =
     basePath && pathname.startsWith(`${basePath}/`) ? pathname.slice(basePath.length) : pathname;
   const rel = (() => {
-    if (uiPath === ROOT_PREFIX) return "";
+    if (uiPath === ROOT_PREFIX) {
+      return "";
+    }
     const assetsIndex = uiPath.indexOf("/assets/");
-    if (assetsIndex >= 0) return uiPath.slice(assetsIndex + 1);
+    if (assetsIndex >= 0) {
+      return uiPath.slice(assetsIndex + 1);
+    }
     return uiPath.slice(1);
   })();
   const requested = rel && !rel.endsWith("/") ? rel : `${rel}index.html`;
@@ -181,7 +325,11 @@ export function handleControlUiHttpRequest(
 
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
     if (path.basename(filePath) === "index.html") {
-      serveIndexHtml(res, filePath, basePath);
+      serveIndexHtml(res, filePath, {
+        basePath,
+        config: opts?.config,
+        agentId: opts?.agentId,
+      });
       return true;
     }
     serveFile(res, filePath);
@@ -191,7 +339,11 @@ export function handleControlUiHttpRequest(
   // SPA fallback (client-side router): serve index.html for unknown paths.
   const indexPath = path.join(root, "index.html");
   if (fs.existsSync(indexPath)) {
-    serveIndexHtml(res, indexPath, basePath);
+    serveIndexHtml(res, indexPath, {
+      basePath,
+      config: opts?.config,
+      agentId: opts?.agentId,
+    });
     return true;
   }
 

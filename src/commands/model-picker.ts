@@ -1,3 +1,5 @@
+import type { OpenClawConfig } from "../config/config.js";
+import type { WizardPrompter, WizardSelectOption } from "../wizard/prompts.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "../agents/auth-profiles.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { getCustomProviderApiKey, resolveEnvApiKey } from "../agents/model-auth.js";
@@ -9,8 +11,6 @@ import {
   normalizeProviderId,
   resolveConfiguredModelRef,
 } from "../agents/model-selection.js";
-import type { ClawdbotConfig } from "../config/config.js";
-import type { WizardPrompter, WizardSelectOption } from "../wizard/prompts.js";
 import { formatTokenK } from "./models/shared.js";
 
 const KEEP_VALUE = "__keep__";
@@ -23,7 +23,7 @@ const PROVIDER_FILTER_THRESHOLD = 30;
 const HIDDEN_ROUTER_MODELS = new Set(["openrouter/auto"]);
 
 type PromptDefaultModelParams = {
-  config: ClawdbotConfig;
+  config: OpenClawConfig;
   prompter: WizardPrompter;
   allowKeep?: boolean;
   includeManual?: boolean;
@@ -34,22 +34,52 @@ type PromptDefaultModelParams = {
 };
 
 type PromptDefaultModelResult = { model?: string };
+type PromptModelAllowlistResult = { models?: string[] };
 
 function hasAuthForProvider(
   provider: string,
-  cfg: ClawdbotConfig,
+  cfg: OpenClawConfig,
   store: ReturnType<typeof ensureAuthProfileStore>,
 ) {
-  if (listProfilesForProvider(store, provider).length > 0) return true;
-  if (resolveEnvApiKey(provider)) return true;
-  if (getCustomProviderApiKey(cfg, provider)) return true;
+  if (listProfilesForProvider(store, provider).length > 0) {
+    return true;
+  }
+  if (resolveEnvApiKey(provider)) {
+    return true;
+  }
+  if (getCustomProviderApiKey(cfg, provider)) {
+    return true;
+  }
   return false;
 }
 
-function resolveConfiguredModelRaw(cfg: ClawdbotConfig): string {
+function resolveConfiguredModelRaw(cfg: OpenClawConfig): string {
   const raw = cfg.agents?.defaults?.model as { primary?: string } | string | undefined;
-  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "string") {
+    return raw.trim();
+  }
   return raw?.primary?.trim() ?? "";
+}
+
+function resolveConfiguredModelKeys(cfg: OpenClawConfig): string[] {
+  const models = cfg.agents?.defaults?.models ?? {};
+  return Object.keys(models)
+    .map((key) => String(key ?? "").trim())
+    .filter((key) => key.length > 0);
+}
+
+function normalizeModelKeys(values: string[]): string[] {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const raw of values) {
+    const value = String(raw ?? "").trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    next.push(value);
+  }
+  return next;
 }
 
 async function promptManualModel(params: {
@@ -64,7 +94,9 @@ async function promptManualModel(params: {
     validate: params.allowBlank ? undefined : (value) => (value?.trim() ? undefined : "Required"),
   });
   const model = String(modelInput ?? "").trim();
-  if (!model) return {};
+  if (!model) {
+    return {};
+  }
   return { model };
 }
 
@@ -120,7 +152,7 @@ export async function promptDefaultModel(
     });
   }
 
-  const providers = Array.from(new Set(models.map((entry) => entry.provider))).sort((a, b) =>
+  const providers = Array.from(new Set(models.map((entry) => entry.provider))).toSorted((a, b) =>
     a.localeCompare(b),
   );
 
@@ -157,13 +189,15 @@ export async function promptDefaultModel(
   const authCache = new Map<string, boolean>();
   const hasAuth = (provider: string) => {
     const cached = authCache.get(provider);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      return cached;
+    }
     const value = hasAuthForProvider(provider, cfg, authStore);
     authCache.set(provider, value);
     return value;
   };
 
-  const options: WizardSelectOption<string>[] = [];
+  const options: WizardSelectOption[] = [];
   if (allowKeep) {
     options.push({
       value: KEEP_VALUE,
@@ -187,16 +221,30 @@ export async function promptDefaultModel(
     reasoning?: boolean;
   }) => {
     const key = modelKey(entry.provider, entry.id);
-    if (seen.has(key)) return;
+    if (seen.has(key)) {
+      return;
+    }
     // Skip internal router models that can't be directly called via API.
-    if (HIDDEN_ROUTER_MODELS.has(key)) return;
+    if (HIDDEN_ROUTER_MODELS.has(key)) {
+      return;
+    }
     const hints: string[] = [];
-    if (entry.name && entry.name !== entry.id) hints.push(entry.name);
-    if (entry.contextWindow) hints.push(`ctx ${formatTokenK(entry.contextWindow)}`);
-    if (entry.reasoning) hints.push("reasoning");
+    if (entry.name && entry.name !== entry.id) {
+      hints.push(entry.name);
+    }
+    if (entry.contextWindow) {
+      hints.push(`ctx ${formatTokenK(entry.contextWindow)}`);
+    }
+    if (entry.reasoning) {
+      hints.push("reasoning");
+    }
     const aliases = aliasIndex.byKey.get(key);
-    if (aliases?.length) hints.push(`alias: ${aliases.join(", ")}`);
-    if (!hasAuth(entry.provider)) hints.push("auth missing");
+    if (aliases?.length) {
+      hints.push(`alias: ${aliases.join(", ")}`);
+    }
+    if (!hasAuth(entry.provider)) {
+      hints.push("auth missing");
+    }
     options.push({
       value: key,
       label: key,
@@ -205,7 +253,9 @@ export async function promptDefaultModel(
     seen.add(key);
   };
 
-  for (const entry of models) addModelOption(entry);
+  for (const entry of models) {
+    addModelOption(entry);
+  }
 
   if (configuredKey && !seen.has(configuredKey)) {
     options.push({
@@ -234,7 +284,9 @@ export async function promptDefaultModel(
     initialValue,
   });
 
-  if (selection === KEEP_VALUE) return {};
+  if (selection === KEEP_VALUE) {
+    return {};
+  }
   if (selection === MANUAL_VALUE) {
     return promptManualModel({
       prompter: params.prompter,
@@ -245,7 +297,159 @@ export async function promptDefaultModel(
   return { model: String(selection) };
 }
 
-export function applyPrimaryModel(cfg: ClawdbotConfig, model: string): ClawdbotConfig {
+export async function promptModelAllowlist(params: {
+  config: OpenClawConfig;
+  prompter: WizardPrompter;
+  message?: string;
+  agentDir?: string;
+  allowedKeys?: string[];
+  initialSelections?: string[];
+}): Promise<PromptModelAllowlistResult> {
+  const cfg = params.config;
+  const existingKeys = resolveConfiguredModelKeys(cfg);
+  const allowedKeys = normalizeModelKeys(params.allowedKeys ?? []);
+  const allowedKeySet = allowedKeys.length > 0 ? new Set(allowedKeys) : null;
+  const resolved = resolveConfiguredModelRef({
+    cfg,
+    defaultProvider: DEFAULT_PROVIDER,
+    defaultModel: DEFAULT_MODEL,
+  });
+  const resolvedKey = modelKey(resolved.provider, resolved.model);
+  const initialSeeds = normalizeModelKeys([
+    ...existingKeys,
+    resolvedKey,
+    ...(params.initialSelections ?? []),
+  ]);
+  const initialKeys = allowedKeySet
+    ? initialSeeds.filter((key) => allowedKeySet.has(key))
+    : initialSeeds;
+
+  const catalog = await loadModelCatalog({ config: cfg, useCache: false });
+  if (catalog.length === 0 && allowedKeys.length === 0) {
+    const raw = await params.prompter.text({
+      message:
+        params.message ??
+        "Allowlist models (comma-separated provider/model; blank to keep current)",
+      initialValue: existingKeys.join(", "),
+      placeholder: "openai-codex/gpt-5.2, anthropic/claude-opus-4-5",
+    });
+    const parsed = String(raw ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (parsed.length === 0) {
+      return {};
+    }
+    return { models: normalizeModelKeys(parsed) };
+  }
+
+  const aliasIndex = buildModelAliasIndex({
+    cfg,
+    defaultProvider: DEFAULT_PROVIDER,
+  });
+  const authStore = ensureAuthProfileStore(params.agentDir, {
+    allowKeychainPrompt: false,
+  });
+  const authCache = new Map<string, boolean>();
+  const hasAuth = (provider: string) => {
+    const cached = authCache.get(provider);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const value = hasAuthForProvider(provider, cfg, authStore);
+    authCache.set(provider, value);
+    return value;
+  };
+
+  const options: WizardSelectOption[] = [];
+  const seen = new Set<string>();
+  const addModelOption = (entry: {
+    provider: string;
+    id: string;
+    name?: string;
+    contextWindow?: number;
+    reasoning?: boolean;
+  }) => {
+    const key = modelKey(entry.provider, entry.id);
+    if (seen.has(key)) {
+      return;
+    }
+    if (HIDDEN_ROUTER_MODELS.has(key)) {
+      return;
+    }
+    const hints: string[] = [];
+    if (entry.name && entry.name !== entry.id) {
+      hints.push(entry.name);
+    }
+    if (entry.contextWindow) {
+      hints.push(`ctx ${formatTokenK(entry.contextWindow)}`);
+    }
+    if (entry.reasoning) {
+      hints.push("reasoning");
+    }
+    const aliases = aliasIndex.byKey.get(key);
+    if (aliases?.length) {
+      hints.push(`alias: ${aliases.join(", ")}`);
+    }
+    if (!hasAuth(entry.provider)) {
+      hints.push("auth missing");
+    }
+    options.push({
+      value: key,
+      label: key,
+      hint: hints.length > 0 ? hints.join(" · ") : undefined,
+    });
+    seen.add(key);
+  };
+
+  const filteredCatalog = allowedKeySet
+    ? catalog.filter((entry) => allowedKeySet.has(modelKey(entry.provider, entry.id)))
+    : catalog;
+
+  for (const entry of filteredCatalog) {
+    addModelOption(entry);
+  }
+
+  const supplementalKeys = allowedKeySet ? allowedKeys : existingKeys;
+  for (const key of supplementalKeys) {
+    if (seen.has(key)) {
+      continue;
+    }
+    options.push({
+      value: key,
+      label: key,
+      hint: allowedKeySet ? "allowed (not in catalog)" : "configured (not in catalog)",
+    });
+    seen.add(key);
+  }
+
+  if (options.length === 0) {
+    return {};
+  }
+
+  const selection = await params.prompter.multiselect({
+    message: params.message ?? "Models in /model picker (multi-select)",
+    options,
+    initialValues: initialKeys.length > 0 ? initialKeys : undefined,
+  });
+  const selected = normalizeModelKeys(selection.map((value) => String(value)));
+  if (selected.length > 0) {
+    return { models: selected };
+  }
+  if (existingKeys.length === 0) {
+    return { models: [] };
+  }
+  const confirmClear = await params.prompter.confirm({
+    message: "Clear the model allowlist? (shows all models)",
+    initialValue: false,
+  });
+  if (!confirmClear) {
+    return {};
+  }
+  return { models: [] };
+}
+
+export function applyPrimaryModel(cfg: OpenClawConfig, model: string): OpenClawConfig {
   const defaults = cfg.agents?.defaults;
   const existingModel = defaults?.model;
   const existingModels = defaults?.models;
@@ -266,6 +470,86 @@ export function applyPrimaryModel(cfg: ClawdbotConfig, model: string): ClawdbotC
         models: {
           ...existingModels,
           [model]: existingModels?.[model] ?? {},
+        },
+      },
+    },
+  };
+}
+
+export function applyModelAllowlist(cfg: OpenClawConfig, models: string[]): OpenClawConfig {
+  const defaults = cfg.agents?.defaults;
+  const normalized = normalizeModelKeys(models);
+  if (normalized.length === 0) {
+    if (!defaults?.models) {
+      return cfg;
+    }
+    const { models: _ignored, ...restDefaults } = defaults;
+    return {
+      ...cfg,
+      agents: {
+        ...cfg.agents,
+        defaults: restDefaults,
+      },
+    };
+  }
+
+  const existingModels = defaults?.models ?? {};
+  const nextModels: Record<string, { alias?: string }> = {};
+  for (const key of normalized) {
+    nextModels[key] = existingModels[key] ?? {};
+  }
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...defaults,
+        models: nextModels,
+      },
+    },
+  };
+}
+
+export function applyModelFallbacksFromSelection(
+  cfg: OpenClawConfig,
+  selection: string[],
+): OpenClawConfig {
+  const normalized = normalizeModelKeys(selection);
+  if (normalized.length <= 1) {
+    return cfg;
+  }
+
+  const resolved = resolveConfiguredModelRef({
+    cfg,
+    defaultProvider: DEFAULT_PROVIDER,
+    defaultModel: DEFAULT_MODEL,
+  });
+  const resolvedKey = modelKey(resolved.provider, resolved.model);
+  if (!normalized.includes(resolvedKey)) {
+    return cfg;
+  }
+
+  const defaults = cfg.agents?.defaults;
+  const existingModel = defaults?.model;
+  const existingPrimary =
+    typeof existingModel === "string"
+      ? existingModel
+      : existingModel && typeof existingModel === "object"
+        ? existingModel.primary
+        : undefined;
+
+  const fallbacks = normalized.filter((key) => key !== resolvedKey);
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...defaults,
+        model: {
+          ...(typeof existingModel === "object" ? existingModel : undefined),
+          primary: existingPrimary ?? resolvedKey,
+          fallbacks,
         },
       },
     },

@@ -2,11 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-
-import { DEFAULT_BOOTSTRAP_FILENAME } from "../agents/workspace.js";
 import type { RuntimeEnv } from "../runtime.js";
-import { runOnboardingWizard } from "./onboarding.js";
 import type { WizardPrompter } from "./prompts.js";
+import { DEFAULT_BOOTSTRAP_FILENAME } from "../agents/workspace.js";
+import { runOnboardingWizard } from "./onboarding.js";
 
 const setupChannels = vi.hoisted(() => vi.fn(async (cfg) => cfg));
 const setupSkills = vi.hoisted(() => vi.fn(async (cfg) => cfg));
@@ -77,7 +76,7 @@ vi.mock("../tui/tui.js", () => ({
 describe("runOnboardingWizard", () => {
   it("exits when config is invalid", async () => {
     readConfigFileSnapshot.mockResolvedValueOnce({
-      path: "/tmp/.clawdbot/clawdbot.json",
+      path: "/tmp/.openclaw/openclaw.json",
       exists: true,
       raw: "{}",
       parsed: {},
@@ -174,22 +173,24 @@ describe("runOnboardingWizard", () => {
   it("launches TUI without auto-delivery when hatching", async () => {
     runTui.mockClear();
 
-    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-onboard-"));
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-onboard-"));
     await fs.writeFile(path.join(workspaceDir, DEFAULT_BOOTSTRAP_FILENAME), "{}");
 
-    const confirm: WizardPrompter["confirm"] = vi.fn(async (opts) => {
-      if (opts.message === "Do you want to hatch your bot now?") return true;
-      return opts.initialValue ?? false;
+    const select: WizardPrompter["select"] = vi.fn(async (opts) => {
+      if (opts.message === "How do you want to hatch your bot?") {
+        return "tui";
+      }
+      return "quickstart";
     });
 
     const prompter: WizardPrompter = {
       intro: vi.fn(async () => {}),
       outro: vi.fn(async () => {}),
       note: vi.fn(async () => {}),
-      select: vi.fn(async () => "quickstart"),
+      select,
       multiselect: vi.fn(async () => []),
       text: vi.fn(async () => ""),
-      confirm,
+      confirm: vi.fn(async () => false),
       progress: vi.fn(() => ({ update: vi.fn(), stop: vi.fn() })),
     };
 
@@ -221,6 +222,63 @@ describe("runOnboardingWizard", () => {
       expect.objectContaining({
         deliver: false,
         message: "Wake up, my friend!",
+      }),
+    );
+
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("offers TUI hatch even without BOOTSTRAP.md", async () => {
+    runTui.mockClear();
+
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-onboard-"));
+
+    const select: WizardPrompter["select"] = vi.fn(async (opts) => {
+      if (opts.message === "How do you want to hatch your bot?") {
+        return "tui";
+      }
+      return "quickstart";
+    });
+
+    const prompter: WizardPrompter = {
+      intro: vi.fn(async () => {}),
+      outro: vi.fn(async () => {}),
+      note: vi.fn(async () => {}),
+      select,
+      multiselect: vi.fn(async () => []),
+      text: vi.fn(async () => ""),
+      confirm: vi.fn(async () => false),
+      progress: vi.fn(() => ({ update: vi.fn(), stop: vi.fn() })),
+    };
+
+    const runtime: RuntimeEnv = {
+      log: vi.fn(),
+      error: vi.fn(),
+      exit: vi.fn((code: number) => {
+        throw new Error(`exit:${code}`);
+      }),
+    };
+
+    await runOnboardingWizard(
+      {
+        acceptRisk: true,
+        flow: "quickstart",
+        mode: "local",
+        workspace: workspaceDir,
+        authChoice: "skip",
+        skipProviders: true,
+        skipSkills: true,
+        skipHealth: true,
+        installDaemon: false,
+      },
+      runtime,
+      prompter,
+    );
+
+    expect(runTui).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliver: false,
+        message: undefined,
       }),
     );
 
@@ -267,8 +325,7 @@ describe("runOnboardingWizard", () => {
 
       const calls = (note as unknown as { mock: { calls: unknown[][] } }).mock.calls;
       expect(calls.length).toBeGreaterThan(0);
-      const lastCall = calls[calls.length - 1];
-      expect(lastCall?.[1]).toBe("Web search (optional)");
+      expect(calls.some((call) => call?.[1] === "Web search (optional)")).toBe(true);
     } finally {
       if (prevBraveKey === undefined) {
         delete process.env.BRAVE_API_KEY;

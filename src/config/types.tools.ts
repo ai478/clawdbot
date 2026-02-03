@@ -102,6 +102,30 @@ export type MediaUnderstandingConfig = {
   models?: MediaUnderstandingModelConfig[];
 };
 
+export type LinkModelConfig = {
+  /** Use a CLI command for link processing. */
+  type?: "cli";
+  /** CLI binary (required when type=cli). */
+  command: string;
+  /** CLI args (template-enabled). */
+  args?: string[];
+  /** Optional timeout override (seconds) for this model entry. */
+  timeoutSeconds?: number;
+};
+
+export type LinkToolsConfig = {
+  /** Enable link understanding when models are configured. */
+  enabled?: boolean;
+  /** Optional scope gating for understanding. */
+  scope?: MediaUnderstandingScopeConfig;
+  /** Max number of links to process per message. */
+  maxLinks?: number;
+  /** Default timeout (seconds). */
+  timeoutSeconds?: number;
+  /** Ordered model list (fallbacks in order). */
+  models?: LinkModelConfig[];
+};
+
 export type MediaToolsConfig = {
   /** Shared model list applied across image/audio/video. */
   models?: MediaUnderstandingModelConfig[];
@@ -116,9 +140,25 @@ export type ToolProfileId = "minimal" | "coding" | "messaging" | "full";
 
 export type ToolPolicyConfig = {
   allow?: string[];
+  /**
+   * Additional allowlist entries merged into the effective allowlist.
+   *
+   * Intended for additive configuration (e.g., "also allow lobster") without forcing
+   * users to replace/duplicate an existing allowlist or profile.
+   */
+  alsoAllow?: string[];
   deny?: string[];
   profile?: ToolProfileId;
 };
+
+export type GroupToolPolicyConfig = {
+  allow?: string[];
+  /** Additional allowlist entries merged into allow. */
+  alsoAllow?: string[];
+  deny?: string[];
+};
+
+export type GroupToolPolicyBySenderConfig = Record<string, GroupToolPolicyConfig>;
 
 export type ExecToolConfig = {
   /** Exec host routing (default: sandbox). */
@@ -131,10 +171,14 @@ export type ExecToolConfig = {
   node?: string;
   /** Directories to prepend to PATH when running exec (gateway/sandbox). */
   pathPrepend?: string[];
+  /** Safe stdin-only binaries that can run without allowlist entries. */
+  safeBins?: string[];
   /** Default time (ms) before an exec command auto-backgrounds. */
   backgroundMs?: number;
   /** Default timeout (seconds) before auto-killing exec commands. */
   timeoutSec?: number;
+  /** Emit a running notice (ms) when approval-backed exec runs long (default: 10000, 0 = off). */
+  approvalRunningNoticeMs?: number;
   /** How long to keep finished sessions in memory (ms). */
   cleanupMs?: number;
   /** Emit a system event and heartbeat when a backgrounded exec exits. */
@@ -155,6 +199,8 @@ export type AgentToolsConfig = {
   /** Base tool profile applied before allow/deny lists. */
   profile?: ToolProfileId;
   allow?: string[];
+  /** Additional allowlist entries merged into allow and/or profile allowlist. */
+  alsoAllow?: string[];
   deny?: string[];
   /** Optional tool policy overrides keyed by provider id or "provider/model". */
   byProvider?: Record<string, ToolPolicyConfig>;
@@ -180,6 +226,8 @@ export type MemorySearchConfig = {
   enabled?: boolean;
   /** Sources to index and search (default: ["memory"]). */
   sources?: Array<"memory" | "sessions">;
+  /** Extra paths to include in memory search (directories or .md files). */
+  extraPaths?: string[];
   /** Experimental memory search settings. */
   experimental?: {
     /** Enable session transcript indexing (experimental, default: false). */
@@ -244,6 +292,12 @@ export type MemorySearchConfig = {
     watch?: boolean;
     watchDebounceMs?: number;
     intervalMinutes?: number;
+    sessions?: {
+      /** Minimum appended bytes before session transcripts are reindexed. */
+      deltaBytes?: number;
+      /** Minimum appended JSONL lines before session transcripts are reindexed. */
+      deltaMessages?: number;
+    };
   };
   /** Query behavior. */
   query?: {
@@ -273,6 +327,8 @@ export type ToolsConfig = {
   /** Base tool profile applied before allow/deny lists. */
   profile?: ToolProfileId;
   allow?: string[];
+  /** Additional allowlist entries merged into allow and/or profile allowlist. */
+  alsoAllow?: string[];
   deny?: string[];
   /** Optional tool policy overrides keyed by provider id or "provider/model". */
   byProvider?: Record<string, ToolPolicyConfig>;
@@ -332,6 +388,7 @@ export type ToolsConfig = {
     };
   };
   media?: MediaToolsConfig;
+  links?: LinkToolsConfig;
   /** Message tool configuration. */
   message?: {
     /**

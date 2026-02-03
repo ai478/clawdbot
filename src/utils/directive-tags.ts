@@ -2,6 +2,7 @@ export type InlineDirectiveParseResult = {
   text: string;
   audioAsVoice: boolean;
   replyToId?: string;
+  replyToExplicitId?: string;
   replyToCurrent: boolean;
   hasAudioTag: boolean;
   hasReplyTag: boolean;
@@ -57,7 +58,9 @@ export function parseInlineDirectives(
       sawCurrent = true;
     } else {
       const id = idRaw.trim();
-      if (id) lastExplicitId = id;
+      if (id) {
+        lastExplicitId = id;
+      }
     }
     return stripReplyTags ? " " : match;
   });
@@ -71,6 +74,7 @@ export function parseInlineDirectives(
     text: cleaned,
     audioAsVoice,
     replyToId,
+    replyToExplicitId: lastExplicitId,
     replyToCurrent: sawCurrent,
     hasAudioTag,
     hasReplyTag,

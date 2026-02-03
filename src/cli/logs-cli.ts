@@ -1,5 +1,5 @@
-import { setTimeout as delay } from "node:timers/promises";
 import type { Command } from "commander";
+import { setTimeout as delay } from "node:timers/promises";
 import { buildGatewayConnectionDetails } from "../gateway/call.js";
 import { parseLogLine } from "../logging/parse-log-line.js";
 import { formatDocsLink } from "../terminal/links.js";
@@ -33,7 +33,9 @@ type LogsCliOptions = {
 };
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
-  if (!value) return fallback;
+  if (!value) {
+    return fallback;
+  }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
@@ -41,14 +43,16 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 async function fetchLogs(
   opts: LogsCliOptions,
   cursor: number | undefined,
+  showProgress: boolean,
 ): Promise<LogsTailPayload> {
   const limit = parsePositiveInt(opts.limit, 200);
   const maxBytes = parsePositiveInt(opts.maxBytes, 250_000);
-  const payload = await callGatewayFromCli("logs.tail", opts, {
-    cursor,
-    limit,
-    maxBytes,
-  });
+  const payload = await callGatewayFromCli(
+    "logs.tail",
+    opts,
+    { cursor, limit, maxBytes },
+    { progress: showProgress },
+  );
   if (!payload || typeof payload !== "object") {
     throw new Error("Unexpected logs.tail response");
   }
@@ -56,10 +60,16 @@ async function fetchLogs(
 }
 
 function formatLogTimestamp(value?: string, mode: "pretty" | "plain" = "plain") {
-  if (!value) return "";
+  if (!value) {
+    return "";
+  }
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  if (mode === "pretty") return parsed.toISOString().slice(11, 19);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  if (mode === "pretty") {
+    return parsed.toISOString().slice(11, 19);
+  }
   return parsed.toISOString();
 }
 
@@ -71,7 +81,9 @@ function formatLogLine(
   },
 ): string {
   const parsed = parseLogLine(raw);
-  if (!parsed) return raw;
+  if (!parsed) {
+    return raw;
+  }
   const label = parsed.subsystem ?? parsed.module ?? "";
   const time = formatLogTimestamp(parsed.time, opts.pretty ? "pretty" : "plain");
   const level = parsed.level ?? "";
@@ -111,7 +123,7 @@ function createLogWriters() {
     onBrokenPipe: (err, stream) => {
       const code = err.code ?? "EPIPE";
       const target = stream === process.stdout ? "stdout" : "stderr";
-      const message = `clawdbot logs: output ${target} closed (${code}). Stopping tail.`;
+      const message = `openclaw logs: output ${target} closed (${code}). Stopping tail.`;
       try {
         clearActiveProgressLine();
         process.stderr.write(`${message}\n`);
@@ -139,7 +151,7 @@ function emitGatewayError(
 ) {
   const details = buildGatewayConnectionDetails({ url: opts.url });
   const message = "Gateway not reachable. Is it running and accessible?";
-  const hint = `Hint: run \`${formatCliCommand("clawdbot doctor")}\`.`;
+  const hint = `Hint: run \`${formatCliCommand("openclaw doctor")}\`.`;
   const errorText = err instanceof Error ? err.message : String(err);
 
   if (mode === "json") {
@@ -160,8 +172,12 @@ function emitGatewayError(
     return;
   }
 
-  if (!errorLine(colorize(rich, theme.error, message))) return;
-  if (!errorLine(details.message)) return;
+  if (!errorLine(colorize(rich, theme.error, message))) {
+    return;
+  }
+  if (!errorLine(details.message)) {
+    return;
+  }
   errorLine(colorize(rich, theme.muted, hint));
 }
 
@@ -178,7 +194,8 @@ export function registerLogsCli(program: Command) {
     .option("--no-color", "Disable ANSI colors")
     .addHelpText(
       "after",
-      () => `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/logs", "docs.clawd.bot/cli/logs")}\n`,
+      () =>
+        `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/logs", "docs.openclaw.ai/cli/logs")}\n`,
     );
 
   addGatewayClientOptions(logs);
@@ -194,8 +211,10 @@ export function registerLogsCli(program: Command) {
 
     while (true) {
       let payload: LogsTailPayload;
+      // Show progress spinner only on first fetch, not during follow polling
+      const showProgress = first && !opts.follow;
       try {
-        payload = await fetchLogs(opts, cursor);
+        payload = await fetchLogs(opts, cursor, showProgress);
       } catch (err) {
         emitGatewayError(err, opts, jsonMode ? "json" : "text", rich, emitJsonLine, errorLine);
         process.exit(1);
@@ -283,7 +302,9 @@ export function registerLogsCli(program: Command) {
           : cursor;
       first = false;
 
-      if (!opts.follow) return;
+      if (!opts.follow) {
+        return;
+      }
       await delay(interval);
     }
   });

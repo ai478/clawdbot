@@ -1,10 +1,23 @@
-import { readConfigFileSnapshot } from "../../config/config.js";
-import { loadAndMaybeMigrateDoctorConfig } from "../../commands/doctor-config-flow.js";
-import { colorize, isRich, theme } from "../../terminal/theme.js";
 import type { RuntimeEnv } from "../../runtime.js";
+import { loadAndMaybeMigrateDoctorConfig } from "../../commands/doctor-config-flow.js";
+import { readConfigFileSnapshot } from "../../config/config.js";
+import { colorize, isRich, theme } from "../../terminal/theme.js";
+import { shortenHomePath } from "../../utils.js";
 import { formatCliCommand } from "../command-format.js";
 
-const ALLOWED_INVALID_COMMANDS = new Set(["doctor", "logs", "health", "help", "status", "service"]);
+const ALLOWED_INVALID_COMMANDS = new Set(["doctor", "logs", "health", "help", "status"]);
+const ALLOWED_INVALID_GATEWAY_SUBCOMMANDS = new Set([
+  "status",
+  "probe",
+  "health",
+  "discover",
+  "call",
+  "install",
+  "uninstall",
+  "start",
+  "stop",
+  "restart",
+]);
 let didRunDoctorConfigFlow = false;
 
 function formatConfigIssues(issues: Array<{ path: string; message: string }>): string[] {
@@ -25,7 +38,13 @@ export async function ensureConfigReady(params: {
 
   const snapshot = await readConfigFileSnapshot();
   const commandName = params.commandPath?.[0];
-  const allowInvalid = commandName ? ALLOWED_INVALID_COMMANDS.has(commandName) : false;
+  const subcommandName = params.commandPath?.[1];
+  const allowInvalid = commandName
+    ? ALLOWED_INVALID_COMMANDS.has(commandName) ||
+      (commandName === "gateway" &&
+        subcommandName &&
+        ALLOWED_INVALID_GATEWAY_SUBCOMMANDS.has(subcommandName))
+    : false;
   const issues = snapshot.exists && !snapshot.valid ? formatConfigIssues(snapshot.issues) : [];
   const legacyIssues =
     snapshot.legacyIssues.length > 0
@@ -33,7 +52,9 @@ export async function ensureConfigReady(params: {
       : [];
 
   const invalid = snapshot.exists && !snapshot.valid;
-  if (!invalid) return;
+  if (!invalid) {
+    return;
+  }
 
   const rich = isRich();
   const muted = (value: string) => colorize(rich, theme.muted, value);
@@ -42,7 +63,7 @@ export async function ensureConfigReady(params: {
   const commandText = (value: string) => colorize(rich, theme.command, value);
 
   params.runtime.error(heading("Config invalid"));
-  params.runtime.error(`${muted("File:")} ${muted(snapshot.path)}`);
+  params.runtime.error(`${muted("File:")} ${muted(shortenHomePath(snapshot.path))}`);
   if (issues.length > 0) {
     params.runtime.error(muted("Problem:"));
     params.runtime.error(issues.map((issue) => `  ${error(issue)}`).join("\n"));
@@ -53,7 +74,7 @@ export async function ensureConfigReady(params: {
   }
   params.runtime.error("");
   params.runtime.error(
-    `${muted("Run:")} ${commandText(formatCliCommand("clawdbot doctor --fix"))}`,
+    `${muted("Run:")} ${commandText(formatCliCommand("openclaw doctor --fix"))}`,
   );
   if (!allowInvalid) {
     params.runtime.exit(1);

@@ -8,22 +8,22 @@
  * - Auto-capture filtering
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
 
-// Skip if no OpenAI API key
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const describeWithKey = OPENAI_API_KEY ? describe : describe.skip;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "test-key";
+const HAS_OPENAI_KEY = Boolean(process.env.OPENAI_API_KEY);
+const liveEnabled = HAS_OPENAI_KEY && process.env.OPENCLAW_LIVE_TEST === "1";
+const describeLive = liveEnabled ? describe : describe.skip;
 
-describeWithKey("memory plugin e2e", () => {
+describe("memory plugin e2e", () => {
   let tmpDir: string;
   let dbPath: string;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-memory-test-"));
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-test-"));
     dbPath = path.join(tmpDir, "lancedb");
   });
 
@@ -41,6 +41,7 @@ describeWithKey("memory plugin e2e", () => {
     expect(memoryPlugin.name).toBe("Memory (LanceDB)");
     expect(memoryPlugin.kind).toBe("memory");
     expect(memoryPlugin.configSchema).toBeDefined();
+    // oxlint-disable-next-line typescript/unbound-method
     expect(memoryPlugin.register).toBeInstanceOf(Function);
   });
 
@@ -159,12 +160,12 @@ describeWithKey("memory plugin e2e", () => {
 });
 
 // Live tests that require OpenAI API key and actually use LanceDB
-describeWithKey("memory plugin live tests", () => {
+describeLive("memory plugin live tests", () => {
   let tmpDir: string;
   let dbPath: string;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-memory-live-"));
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-live-"));
     dbPath = path.join(tmpDir, "lancedb");
   });
 
@@ -176,11 +177,16 @@ describeWithKey("memory plugin live tests", () => {
 
   test("memory tools work end-to-end", async () => {
     const { default: memoryPlugin } = await import("./index.js");
+    const liveApiKey = process.env.OPENAI_API_KEY ?? "";
 
     // Mock plugin API
+    // oxlint-disable-next-line typescript/no-explicit-any
     const registeredTools: any[] = [];
+    // oxlint-disable-next-line typescript/no-explicit-any
     const registeredClis: any[] = [];
+    // oxlint-disable-next-line typescript/no-explicit-any
     const registeredServices: any[] = [];
+    // oxlint-disable-next-line typescript/no-explicit-any
     const registeredHooks: Record<string, any[]> = {};
     const logs: string[] = [];
 
@@ -191,7 +197,7 @@ describeWithKey("memory plugin live tests", () => {
       config: {},
       pluginConfig: {
         embedding: {
-          apiKey: OPENAI_API_KEY,
+          apiKey: liveApiKey,
           model: "text-embedding-3-small",
         },
         dbPath,
@@ -205,24 +211,31 @@ describeWithKey("memory plugin live tests", () => {
         error: (msg: string) => logs.push(`[error] ${msg}`),
         debug: (msg: string) => logs.push(`[debug] ${msg}`),
       },
+      // oxlint-disable-next-line typescript/no-explicit-any
       registerTool: (tool: any, opts: any) => {
         registeredTools.push({ tool, opts });
       },
+      // oxlint-disable-next-line typescript/no-explicit-any
       registerCli: (registrar: any, opts: any) => {
         registeredClis.push({ registrar, opts });
       },
+      // oxlint-disable-next-line typescript/no-explicit-any
       registerService: (service: any) => {
         registeredServices.push(service);
       },
+      // oxlint-disable-next-line typescript/no-explicit-any
       on: (hookName: string, handler: any) => {
-        if (!registeredHooks[hookName]) registeredHooks[hookName] = [];
+        if (!registeredHooks[hookName]) {
+          registeredHooks[hookName] = [];
+        }
         registeredHooks[hookName].push(handler);
       },
       resolvePath: (p: string) => p,
     };
 
     // Register plugin
-    await memoryPlugin.register(mockApi as any);
+    // oxlint-disable-next-line typescript/no-explicit-any
+    memoryPlugin.register(mockApi as any);
 
     // Check registration
     expect(registeredTools.length).toBe(3);

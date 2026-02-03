@@ -1,25 +1,30 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { resolveChannelMediaMaxBytes, type ClawdbotConfig } from "clawdbot/plugin-sdk";
-
+import { resolveChannelMediaMaxBytes, type OpenClawConfig } from "openclaw/plugin-sdk";
 import { sendBlueBubblesAttachment } from "./attachments.js";
-import { sendMessageBlueBubbles } from "./send.js";
+import { resolveBlueBubblesMessageId } from "./monitor.js";
 import { getBlueBubblesRuntime } from "./runtime.js";
+import { sendMessageBlueBubbles } from "./send.js";
 
 const HTTP_URL_RE = /^https?:\/\//i;
 const MB = 1024 * 1024;
 
 function assertMediaWithinLimit(sizeBytes: number, maxBytes?: number): void {
-  if (typeof maxBytes !== "number" || maxBytes <= 0) return;
-  if (sizeBytes <= maxBytes) return;
+  if (typeof maxBytes !== "number" || maxBytes <= 0) {
+    return;
+  }
+  if (sizeBytes <= maxBytes) {
+    return;
+  }
   const maxLabel = (maxBytes / MB).toFixed(0);
   const sizeLabel = (sizeBytes / MB).toFixed(2);
   throw new Error(`Media exceeds ${maxLabel}MB limit (got ${sizeLabel}MB)`);
 }
 
 function resolveLocalMediaPath(source: string): string {
-  if (!source.startsWith("file://")) return source;
+  if (!source.startsWith("file://")) {
+    return source;
+  }
   try {
     return fileURLToPath(source);
   } catch {
@@ -28,7 +33,9 @@ function resolveLocalMediaPath(source: string): string {
 }
 
 function resolveFilenameFromSource(source?: string): string | undefined {
-  if (!source) return undefined;
+  if (!source) {
+    return undefined;
+  }
   if (source.startsWith("file://")) {
     try {
       return path.basename(fileURLToPath(source)) || undefined;
@@ -48,7 +55,7 @@ function resolveFilenameFromSource(source?: string): string | undefined {
 }
 
 export async function sendBlueBubblesMedia(params: {
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   to: string;
   mediaUrl?: string;
   mediaPath?: string;
@@ -58,6 +65,7 @@ export async function sendBlueBubblesMedia(params: {
   caption?: string;
   replyToId?: string | null;
   accountId?: string;
+  asVoice?: boolean;
 }) {
   const {
     cfg,
@@ -70,6 +78,7 @@ export async function sendBlueBubblesMedia(params: {
     caption,
     replyToId,
     accountId,
+    asVoice,
   } = params;
   const core = getBlueBubblesRuntime();
   const maxBytes = resolveChannelMediaMaxBytes({
@@ -134,12 +143,18 @@ export async function sendBlueBubblesMedia(params: {
     }
   }
 
+  // Resolve short ID (e.g., "5") to full UUID
+  const replyToMessageGuid = replyToId?.trim()
+    ? resolveBlueBubblesMessageId(replyToId.trim(), { requireKnownShortId: true })
+    : undefined;
+
   const attachmentResult = await sendBlueBubblesAttachment({
     to,
     buffer,
     filename: resolvedFilename ?? "attachment",
     contentType: resolvedContentType ?? undefined,
-    replyToMessageGuid: replyToId?.trim() || undefined,
+    replyToMessageGuid,
+    asVoice,
     opts: {
       cfg,
       accountId,
@@ -151,7 +166,7 @@ export async function sendBlueBubblesMedia(params: {
     await sendMessageBlueBubbles(to, trimmedCaption, {
       cfg,
       accountId,
-      replyToMessageGuid: replyToId?.trim() || undefined,
+      replyToMessageGuid,
     });
   }
 

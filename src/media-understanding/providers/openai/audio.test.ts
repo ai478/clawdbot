@@ -1,14 +1,44 @@
-import { describe, expect, it } from "vitest";
-
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as ssrf from "../../../infra/net/ssrf.js";
 import { transcribeOpenAiCompatibleAudio } from "./audio.js";
 
+const resolvePinnedHostname = ssrf.resolvePinnedHostname;
+const resolvePinnedHostnameWithPolicy = ssrf.resolvePinnedHostnameWithPolicy;
+const lookupMock = vi.fn();
+let resolvePinnedHostnameSpy: ReturnType<typeof vi.spyOn> | null = null;
+let resolvePinnedHostnameWithPolicySpy: ReturnType<typeof vi.spyOn> | null = null;
+
 const resolveRequestUrl = (input: RequestInfo | URL) => {
-  if (typeof input === "string") return input;
-  if (input instanceof URL) return input.toString();
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
   return input.url;
 };
 
 describe("transcribeOpenAiCompatibleAudio", () => {
+  beforeEach(() => {
+    lookupMock.mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
+    resolvePinnedHostnameSpy = vi
+      .spyOn(ssrf, "resolvePinnedHostname")
+      .mockImplementation((hostname) => resolvePinnedHostname(hostname, lookupMock));
+    resolvePinnedHostnameWithPolicySpy = vi
+      .spyOn(ssrf, "resolvePinnedHostnameWithPolicy")
+      .mockImplementation((hostname, params) =>
+        resolvePinnedHostnameWithPolicy(hostname, { ...params, lookupFn: lookupMock }),
+      );
+  });
+
+  afterEach(() => {
+    lookupMock.mockReset();
+    resolvePinnedHostnameSpy?.mockRestore();
+    resolvePinnedHostnameWithPolicySpy?.mockRestore();
+    resolvePinnedHostnameSpy = null;
+    resolvePinnedHostnameWithPolicySpy = null;
+  });
+
   it("respects lowercase authorization header overrides", async () => {
     let seenAuth: string | null = null;
     const fetchFn = async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -59,7 +89,7 @@ describe("transcribeOpenAiCompatibleAudio", () => {
       fetchFn,
     });
 
-    expect(result.model).toBe("whisper-1");
+    expect(result.model).toBe("gpt-4o-mini-transcribe");
     expect(result.text).toBe("hello");
     expect(seenUrl).toBe("https://api.example.com/v1/audio/transcriptions");
     expect(seenInit?.method).toBe("POST");
@@ -71,7 +101,7 @@ describe("transcribeOpenAiCompatibleAudio", () => {
 
     const form = seenInit?.body as FormData;
     expect(form).toBeInstanceOf(FormData);
-    expect(form.get("model")).toBe("whisper-1");
+    expect(form.get("model")).toBe("gpt-4o-mini-transcribe");
     expect(form.get("language")).toBe("en");
     expect(form.get("prompt")).toBe("hello");
     const file = form.get("file") as Blob | { type?: string; name?: string } | null;

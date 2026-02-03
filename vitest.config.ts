@@ -1,27 +1,26 @@
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const isCI = process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
-const localWorkers = 4;
+const isWindows = process.platform === "win32";
+const localWorkers = Math.max(4, Math.min(16, os.cpus().length));
+const ciWorkers = isWindows ? 2 : 3;
 
 export default defineConfig({
   resolve: {
     alias: {
-      "clawdbot/plugin-sdk": path.join(repoRoot, "src", "plugin-sdk", "index.ts"),
+      "openclaw/plugin-sdk": path.join(repoRoot, "src", "plugin-sdk", "index.ts"),
     },
   },
   test: {
-    testTimeout: 60_000,
-    hookTimeout: 120_000,
+    testTimeout: 120_000,
+    hookTimeout: isWindows ? 180_000 : 120_000,
     pool: "forks",
-    maxWorkers: isCI ? 3 : localWorkers,
-    include: [
-      "src/**/*.test.ts",
-      "extensions/**/*.test.ts",
-      "test/format-error.test.ts",
-    ],
+    maxWorkers: isCI ? ciWorkers : localWorkers,
+    include: ["src/**/*.test.ts", "extensions/**/*.test.ts", "test/format-error.test.ts"],
     setupFiles: ["test/setup.ts"],
     exclude: [
       "dist/**",
@@ -29,8 +28,9 @@ export default defineConfig({
       "apps/macos/.build/**",
       "**/node_modules/**",
       "**/vendor/**",
-      "dist/Clawdbot.app/**",
+      "dist/OpenClaw.app/**",
       "**/*.live.test.ts",
+      "**/*.e2e.test.ts",
     ],
     coverage: {
       provider: "v8",
