@@ -38,7 +38,7 @@ services:
       CLAWDBOT_DEFAULT_AGENT: ${CLAWDBOT_DEFAULT_AGENT:-admin}
       CLAWDBOT_GATEWAY_URL: ${CLAWDBOT_GATEWAY_URL:-http://localhost:18789}
     volumes:
-      - ${OPENCLAW_CONFIG_DIR:-C:/Users/AboodKh/Documents/Projects/clawdbot/.openclaw}:/home/node/.openclaw
+      - ${OPENCLAW_CONFIG_DIR:-/home/clawdis/.openclaw}:/home/node/.openclaw
       - /home/clawdis/clawd:/home/node/clawd
       - /home/clawdis/clawd-team:/home/node/clawd-team
       - /home/clawdis/clawd-sync:/home/node/clawd-sync
@@ -87,7 +87,7 @@ services:
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
     volumes:
-      - ${OPENCLAW_CONFIG_DIR:-C:/Users/AboodKh/Documents/Projects/clawdbot/.openclaw}:/home/node/.openclaw
+      - ${OPENCLAW_CONFIG_DIR:-/home/clawdis/.openclaw}:/home/node/.openclaw
       - /home/clawdis/clawd:/home/node/clawd
       - /home/clawdis/clawd-team:/home/node/clawd-team
       - /home/clawdis/clawd-sync:/home/node/clawd-sync
