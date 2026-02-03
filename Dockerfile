@@ -4,43 +4,31 @@ FROM node:22-bookworm
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
-# Install Docker CLI (required for sandbox mode)
+# Install System Dependencies (Docker, GH CLI, Browser libs, etc.)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    gnupg \
-    jq && \
+    ca-certificates curl gnupg jq \
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+    libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
+    libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 && \
+    # Install Docker CLI
     install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     chmod a+r /etc/apt/keyrings/docker.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    # Install GitHub CLI
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
     apt-get update && \
-    apt-get install -y --no-install-recommends docker-ce-cli && \
-    apt-get clean && \
+    apt-get install -y --no-install-recommends docker-ce-cli gh && \
+    # Install glab
+    curl -fsSL https://gitlab.com/gitlab-org/cli/-/releases/v1.80.4/downloads/glab_1.80.4_linux_amd64.deb -o /tmp/glab.deb && \
+    dpkg -i /tmp/glab.deb && \
+    rm /tmp/glab.deb && \
+    # Cleanup
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
-
-# Install GitHub CLI
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends gh \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
-
-# Install browser dependencies (for agent-browser / puppeteer)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
-    libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
-    libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install glab (GitLab CLI)
-RUN curl -fsSL https://gitlab.com/gitlab-org/cli/-/releases/v1.80.4/downloads/glab_1.80.4_linux_amd64.deb -o /tmp/glab.deb \
-    && dpkg -i /tmp/glab.deb \
-    && rm /tmp/glab.deb
 
 RUN corepack enable
 
@@ -114,12 +102,12 @@ RUN pnpm ui:build
 # Install Playwright browsers (for browser automation tasks)
 # Install Playwright system dependencies (requires root)
 USER root
-RUN npx -y playwright@1.57.0 install-deps chromium
+RUN ./node_modules/.bin/playwright install-deps chromium
 USER node
 
 # Install Playwright browsers (for browser automation tasks)
 # Note: This runs as the 'node' user so browsers are installed in /home/node/.cache/ms-playwright
-RUN npx -y playwright@1.57.0 install chromium
+RUN ./node_modules/.bin/playwright install chromium
 
 # Create agent-browser alias
 USER root
@@ -128,9 +116,6 @@ RUN echo '#!/bin/bash\nnode /app/dist/entry.js browser "$@"' > /usr/local/bin/ag
 USER node
 
 ENV NODE_ENV=production
-
-# Allow non-root user to write temp files during runtime/tests.
-RUN chown -R node:node /app
 
 # Security hardening: Run as non-root user
 # The node:22-bookworm image includes a 'node' user (uid 1000)
